@@ -6,6 +6,9 @@ extends Node
 ##   判的是 P17 的**核心机制**——日志已有键时不再掷骰。
 
 const _EventScript := preload("res://src/systems/event_system.gd")
+## state_store.gd 无 class_name（autoload 名是 State），故 preload 脚本取内嵌 ChangeSet
+## ——与 combat_system.gd 同款正解，不要写 StateStore.ChangeSet。
+const _Store = preload("res://src/core/state_store.gd")
 
 var _pass := 0
 var _fail := 0
@@ -55,7 +58,7 @@ func _test_m10_impact_whitelist() -> void:
 
 ## P8：连续触发线性叠加（同键不同 slot 各生效一次，数值线性叠加）
 func _test_p8_linear_stack() -> void:
-	State.apply(StateStore.ChangeSet.new("event_probe", "p8")
+	State.apply(_Store.ChangeSet.new("effect_sink", "p8")
 		.setv("loop.store_water_milli", 5000))
 	var w0 := float(State.read("loop.store_water_milli"))
 	# 直接走 fire 落两次不同 slot（ev_neighbor_water 效果 = water -1000）
@@ -67,7 +70,7 @@ func _test_p8_linear_stack() -> void:
 
 ## P9：幂等键不重复发放（同 event_id:day:slot 第二次 fire 无效果）
 func _test_p9_idempotent() -> void:
-	State.apply(StateStore.ChangeSet.new("event_probe", "p9")
+	State.apply(_Store.ChangeSet.new("effect_sink", "p9")
 		.setv("loop.store_water_milli", 5000))
 	var ev_def: Dictionary = _ev._event_by_id("ev_neighbor_water")
 	_ev._fire(ev_def, 5, 0)
@@ -98,7 +101,7 @@ func _test_p17_replay_no_roll() -> void:
 
 ## 条件谓词：结构化 all/any/not + 比较算子，无 "!" 字符串
 func _test_condition_predicate() -> void:
-	State.apply(StateStore.ChangeSet.new("event_probe", "cond")
+	State.apply(_Store.ChangeSet.new("effect_sink", "cond")
 		.setv("player.hunger", 10.0)
 		.setv("ui.hints.tech_L2_1_trap", false))
 	var node := {"all": [
@@ -128,7 +131,7 @@ func _test_cursor_persistence() -> void:
 	var sys_b := _EventScript.new()
 	add_child(sys_b)
 	# 游标起点 0；D3 06:00 的 ev_trap_hint 应触发
-	State.apply(StateStore.ChangeSet.new("event_probe", "d3").setv("time.day", 3))
+	State.apply(_Store.ChangeSet.new("effect_sink", "d3").setv("time.day", 3))
 	sys_b.check_scheduled(6.5)
 	_t("cursor: ev_trap_hint fired at D3 06:00", sys_b._cursor >= 1)
 	var log_n := sys_b.event_log.size()
@@ -157,7 +160,7 @@ func _test_save_section() -> void:
 	_t("p7: log restored from snapshot", sys_d.event_log.size() == sys_c.event_log.size())
 	_t("p7: cursor restored from snapshot", sys_d._cursor == 2)
 	# 恢复后同键重放不应再发放
-	State.apply(StateStore.ChangeSet.new("event_probe", "p7").setv("loop.store_water_milli", 5000))
+	State.apply(_Store.ChangeSet.new("effect_sink", "p7").setv("loop.store_water_milli", 5000))
 	var w_before := float(State.read("loop.store_water_milli"))
 	sys_d._fire(sys_d._event_by_id("ev_neighbor_water"), 6, 0)
 	_t("p10: restored log blocks re-fire (rollback diff=0)",

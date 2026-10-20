@@ -7,16 +7,6 @@
 
   "events": [
     {
-      "id": "ev_trap_hint",
-      "name": "陷阱预警提示",
-      "trigger": { "type": "scheduled", "day": 3, "gh": 6.0 },
-      "impact": "flag",
-      "effects": [
-        { "kind": "flag", "scope": "ui_hints", "id": "trap_telegraph", "field": "enabled", "value": true }
-      ],
-      "_judgement": "P18(可感知) P23(ui.hints 入档持久化，读档后提示不重弹不漏弹)"
-    },
-    {
       "id": "ev_gas_robbed",
       "name": "加油站被抢",
       "trigger": { "type": "random", "day_min": 4, "weight": 1 },

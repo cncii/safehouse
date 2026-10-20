@@ -185,11 +185,15 @@ func _eval_condition(node: Dictionary, day: int) -> bool:
 	if node.has("not"):
 		return not _eval_condition(node["not"], day)
 	# 叶子：{path, op, value}
-	var cur := _read_state_path(String(node.get("path", "")), day)
-	var target := node.get("value")
+	# 注：Dictionary.get 返回 Variant，工程把「从 Variant 推断类型」警告当错误，
+	# 故这三处必须写显式类型。
+	var cur: Variant = _read_state_path(String(node.get("path", "")), day)
+	var target: Variant = node.get("value")
 	var op := String(node.get("op", "eq"))
-	if op == "eq":  return cur == target
-	if op == "ne":  return cur != target
+	# eq/ne 必须同类型比较：GDScript 里 float 与 bool 混比会在运行期报
+	# "Invalid operands"直接崩。故先判类型是否同类，再比值。
+	if op == "eq":  return _same_kind(cur, target) and cur == target
+	if op == "ne":  return not (_same_kind(cur, target) and cur == target)
 	if op == "lt":  return float(cur) < float(target)
 	if op == "lte": return float(cur) <= float(target)
 	if op == "gt":  return float(cur) > float(target)
@@ -200,6 +204,17 @@ func _eval_condition(node: Dictionary, day: int) -> bool:
 ## condition 里的 path 可含 {day} 模板（如 time.day → 当前天），便于跨天条件
 func _read_state_path(path: String, day: int) -> Variant:
 	return State.read(path.replace("{day}", str(day)))
+
+## eq/ne 的类型守卫：数值族（int/float）互认，其余必须严格同类型。
+## 缺了它，`{"op":"eq","value":false}` 对 float 值会在运行期抛 Invalid operands。
+func _same_kind(a: Variant, b: Variant) -> bool:
+	var a_num := (a is int or a is float)
+	var b_num := (b is int or b is float)
+	if a_num or b_num:
+		return a_num and b_num
+	if a is bool or b is bool:
+		return (a is bool) and (b is bool)
+	return typeof(a) == typeof(b)
 
 # ── fire：落日志 + 交 EffectSink 落地 ────────────────────────────────
 ## 1) 幂等键查重（P9）→ 2) event_log 落盘（append-only，C17）

@@ -16,12 +16,17 @@ extends Node
 ## 注意：condition 用结构化谓词 {all/any/not + eq/ne/lt/lte/gt/gte}，
 ## 一个 "!" 字符串都不许出现（架构 v1.4 否决案）。
 
+## state_store.gd 没有 class_name（autoload 名是 State），所以**不能**写
+## `StateStore.ChangeSet`——那样编译期就报 "Identifier not declared"。
+## 正解：preload 脚本取内嵌 ChangeSet（与 vitals_system.gd / combat_system.gd 同款）。
+const _Store = preload("res://src/core/state_store.gd")
+
 func resolve(effects: Array, source: StringName) -> void:
 	for e_variant: Variant in effects:
 		var e: Dictionary = e_variant
 		match String(e.get("kind", "")):
 			"num":
-				var cs := StateStore.ChangeSet.new(source, "effect_sink:num")
+				var cs := _Store.ChangeSet.new(source, "effect_sink:num")
 				match String(e.get("verb", "add")):
 					"set":   cs.setv(String(e["path"]), e["value"])
 					"clamp": cs.clampv(String(e["path"]), float(e["value"]))
