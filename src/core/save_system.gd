@@ -171,7 +171,9 @@ func _atomic_write(path: String, payload: Dictionary) -> bool:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_buffer(JSON.stringify(payload, "  ").to_utf8_buffer())
+	# 与 _read_parsed 对称：统一 GZIP（此前裸写 JSON 而读侧解压 → profile 通道读写
+	# 不对称，save_profile 后 load_profile 恒空。S6 接入时发现，2026-10-20 修）。
+	f.store_buffer(JSON.stringify(payload, "  ").to_utf8_buffer().compress(FileAccess.COMPRESSION_GZIP))
 	f.flush()
 	f.close()
 	return true

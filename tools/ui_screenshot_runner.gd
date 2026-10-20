@@ -124,17 +124,24 @@ func _scan_overflows(view: Rect2) -> PackedStringArray:
 	return out
 
 func _walk(n: Node, view: Rect2, out: PackedStringArray) -> void:
+	_walk_clipped(n, view, out, false)
+
+## clipped=true：当前节点处于滚动/裁剪容器（clip_contents）子树内——内容滚动可达，
+## 不算视口越界（豁免子树；容器自身的 rect 仍检查）。S6 设置页改滚动布局后必需。
+func _walk_clipped(n: Node, view: Rect2, out: PackedStringArray, clipped: bool) -> void:
 	for c: Node in n.get_children():
 		if c is Control:
-			var r: Rect2 = (c as Control).get_global_rect()
-			var inside := r.position.x >= -RECT_TOLERANCE \
-				and r.position.y >= -RECT_TOLERANCE \
-				and r.end.x <= view.size.x + RECT_TOLERANCE \
-				and r.end.y <= view.size.y + RECT_TOLERANCE
-			if not inside:
-				out.append("%s rect=%s viewport=%s chain=%s" % [
-					_path_of(c), r, view.size, _chain_rects(c)])
-		_walk(c, view, out)
+			var ctrl := c as Control
+			if not clipped:
+				var r: Rect2 = ctrl.get_global_rect()
+				var inside := r.position.x >= -RECT_TOLERANCE \
+					and r.position.y >= -RECT_TOLERANCE \
+					and r.end.x <= view.size.x + RECT_TOLERANCE \
+					and r.end.y <= view.size.y + RECT_TOLERANCE
+				if not inside:
+					out.append("%s rect=%s viewport=%s chain=%s" % [
+						_path_of(c), r, view.size, _chain_rects(c)])
+			_walk_clipped(c, view, out, clipped or ctrl.clip_contents)
 
 func _chain_rects(n: Node) -> String:
 	var parts: PackedStringArray = []

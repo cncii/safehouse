@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_hud_root()
 	_test_settings_language_switch()
+	_test_keybinds()
 	await _test_loop_panel()
 	_test_audio_alarms()
 	_finish()
@@ -193,6 +194,92 @@ func _test_settings_language_switch() -> void:
 		settings._title.text != "")
 	settings._on_lang_selected(0)   # zh_CN，还原，避免污染同进程后续用例
 	settings.queue_free()
+
+# ── S6 键位重绑 ──
+# 能抓：动作清单被硬编码（动态遍历被改坏 → 工程加动作面板不同步）、
+#       冲突检测漏掉（误覆盖他动作的键）、被拒绝的重绑仍改写了 InputMap、
+#       profile 落盘/启动恢复断链（重启后键位丢失的回归）、恢复默认不彻底。
+# 注意：rebind/reset 会写 user://profile.sav = 真实用户目录（use_custom_user_dir），
+#       测试前后快照恢复，不留痕。
+func _test_keybinds() -> void:
+	var orig_profile: Dictionary = Save.load_profile()
+
+	var kb := KeybindSettings.new()
+	add_child(kb)
+
+	# ① 清单动态遍历：面板行数 == 过滤后动作数（工程 [input] 现为 10 个）
+	var acts: PackedStringArray = kb._game_actions()
+	_t("keybind: filters ui_* and renders dynamic list",
+		kb._rows.size() == acts.size() and acts.size() == 10
+		and not String(acts[0]).begins_with("ui_"))
+
+	# ② 动作名本地化（strings.csv 缺 ACTION_* 键会退化成裸 KEY）
+	var names_ok := true
+	for a: String in kb._rows:
+		if (kb._rows[a]["label"] as Label).text != Localize.text("ACTION_" + a.to_upper()):
+			names_ok = false
+	_t("keybind: action names localized (not raw KEY)", names_ok)
+
+	# 基准：工程默认键位（⑤⑦ 判据要用）。
+	# ⚠ 判据期望值一律从 defaults 派生，不许凭记忆写键码——
+	#   本域曾因"记得 attack=K"（实际默认 J=74）造出 7 条假红。
+	var defaults := {}
+	for a: String in acts:
+		defaults[a] = kb._primary_key(a)
+
+	# ③ 重绑生效：move_up → 空闲键（候选表取第一个工程默认未占用的，判据与默认键位解耦）
+	var free_key := 0
+	for cand: Key in [KEY_X, KEY_Z, KEY_B, KEY_V, KEY_N]:
+		var taken := false
+		for a: String in acts:
+			if int(defaults[a]) == int(cand):
+				taken = true
+		if not taken:
+			free_key = int(cand)
+			break
+	_t("keybind: fixture has a free key to test with", free_key != 0)
+	_t("keybind: rebind move_up->free key succeeds", kb.rebind("move_up", free_key) == "")
+	var has_new := false
+	var has_old := false
+	for ev: InputEvent in InputMap.action_get_events("move_up"):
+		if ev is InputEventKey:
+			if (ev as InputEventKey).physical_keycode == free_key:
+				has_new = true
+			if (ev as InputEventKey).physical_keycode == int(defaults["move_up"]):
+				has_old = true
+	_t("keybind: move_up has new key after rebind", has_new)
+	_t("keybind: move_up old key erased (no dual-trigger)", not has_old)
+
+	# ④ 冲突拒绝：attack 想占 move_right 的默认键 → 拒绝、不改写、提示占用方
+	var conflict_key := int(defaults["move_right"])
+	_t("keybind: conflict detected (move_right's key)", kb.rebind("attack", conflict_key) == "move_right")
+	_t("keybind: rejected rebind leaves attack untouched",
+		kb._primary_key("attack") == int(defaults["attack"]))
+	_t("keybind: conflict note names the occupying action",
+		kb._note.text.contains(Localize.text("ACTION_MOVE_RIGHT")))
+
+	# ⑤ 落盘：rebind 即写 profile（不等关页）
+	_t("keybind: rebind persisted to profile",
+		int(Save.load_profile().get("profile", {}).get("keybinds", {}).get("move_up", 0)) == free_key)
+
+	# ⑥ 启动恢复链：打回工程默认 → apply_saved → 改过的键回来
+	InputMap.load_from_project_settings()
+	KeybindSettings.apply_saved()
+	_t("keybind: apply_saved restores rebinding after engine-default reset",
+		kb._primary_key("move_up") == free_key)
+
+	# ⑦ 恢复默认：InputMap 全量对齐工程默认 + profile 重记默认
+	kb.reset_defaults()
+	var all_default := true
+	for a: String in defaults:
+		if kb._primary_key(a) != int(defaults[a]):
+			all_default = false
+	_t("keybind: reset_defaults restores every project default", all_default)
+	_t("keybind: profile re-records defaults after reset",
+		int(Save.load_profile().get("profile", {}).get("keybinds", {}).get("move_up", 0)) == int(defaults["move_up"]))
+
+	kb.queue_free()
+	Save.save_profile(orig_profile.get("profile", {}))   # 快照恢复，真实 profile 不留测试痕
 
 # ── 音频警报（W4）──
 # 能抓：阈值被抄成另一份常量（与 HudStyle 脱钩）、订阅沿翻转失效、

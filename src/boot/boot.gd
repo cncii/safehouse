@@ -35,3 +35,5 @@ func _ready() -> void:
 		return
 	# 自检通过后进入主菜单（分包初期先停在空场景）
 	# SceneRouter.goto("main_menu")  ← 待 UI 包接入
+	# 应用已保存键位（S6）：profile.keybinds → InputMap。UI 包（表现组）接线。
+	KeybindSettings.apply_saved()

@@ -1,11 +1,11 @@
 class_name SettingsScreen
 extends Control
-## settings_screen.gd — 设置页（包 D 表现组 · W3）
+## settings_screen.gd — 设置页（包 D 表现组 · W3/S8）
 ##
-## ── 职责 ──   语言切换（S8）+ 键位区占位（S6 待接入）
-## ── 不做 ──   不写状态；不改 core；不落盘（存档归包 E，等 meta_system 挂好再接）
-## ── 依赖 ──   Localize.set_lang / Localize.text · HudStyle
-## ── 判据 ──   S8（切语言无需重启、占位符残留 0）
+## ── 职责 ──   语言切换（S8）+ 键位重绑面板（S6，实现在 keybind_settings.gd）
+## ── 不做 ──   不写状态；不改 core；键位落盘走 Save profile 通道（在 keybind_settings.gd）
+## ── 依赖 ──   Localize.set_lang / Localize.text · HudStyle · KeybindSettings
+## ── 判据 ──   S6（全键位重绑+恢复默认+冲突提示）S8（切语言无需重启、占位符残留 0）
 ##
 ## ── 为什么切语言要遍历整棵 UI 树 ──
 ## core 的 localization.gd 没有"语言已变"的通知信号，而 core 是禁改层，
@@ -14,8 +14,7 @@ extends Control
 ## 代价是 O(节点数)，好处是不碰 core——这个交换在本项目里是划算的。
 ##
 ## ── TODO ──
-##  [ ] S6 键位重绑：InputMap 改写 + 冲突提示 + 恢复默认；落盘要等包 E 的 meta_system
-##  [ ] 语言选择持久化（同上，等 meta_system）
+##  [ ] 语言选择持久化（走 Save profile 通道，等 meta_system 接手 profile 生命周期）
 
 const LANGS := ["zh_CN", "zh_TW", "en"]
 
@@ -23,7 +22,6 @@ var _title: Label
 var _lang_label: Label
 var _lang_options: OptionButton
 var _keybind_label: Label
-var _keybind_note: Label
 var _close_btn: Button
 
 func _ready() -> void:
@@ -32,13 +30,26 @@ func _ready() -> void:
 
 func _build() -> void:
 	var panel := PanelContainer.new()
+	# center 锚定 + grow both：尺寸变化时保持居中。曾因只用 PRESET_CENTER（offsets
+	# 按旧尺寸算定）+ S6 撑高面板 → 矩形从中心向右下延伸出视口（S5 抓到）。
 	panel.set_anchors_preset(Control.PRESET_CENTER, false)
-	panel.custom_minimum_size = Vector2(180.0, 140.0)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	# 640×360 逻辑视口下键位 10 行 + 语言 + 标题 ≈ 540px 高会超屏（S5 实测 30 处越界）
+	# → 内容走滚动容器：面板本身钉在视口内，键位列表滚动可达（滚动区不算越界，
+	#   ui_screenshot_runner 对 clip 容器子树豁免）。
+	panel.custom_minimum_size = Vector2(200.0, 330.0)
 	add_child(panel)
 
+	var scroll := ScrollContainer.new()
+	scroll.clip_contents = true   # 裁剪滚动内容（S5 runner 对 clip 子树豁免越界检查）
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+
 	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 6)
-	panel.add_child(col)
+	scroll.add_child(col)
 
 	_title = Label.new()
 	col.add_child(_title)
@@ -60,8 +71,10 @@ func _build() -> void:
 
 	_keybind_label = Label.new()
 	col.add_child(_keybind_label)
-	_keybind_note = Label.new()
-	col.add_child(_keybind_note)
+
+	# S6：键位重绑面板（动态遍历 InputMap，冲突拒绝式，profile 落盘）
+	var keybinds := KeybindSettings.new()
+	col.add_child(keybinds)
 
 	_close_btn = Button.new()
 	_close_btn.pressed.connect(_on_close_pressed)
@@ -116,5 +129,4 @@ func refresh_text() -> void:
 	_title.text = Localize.text("SETTINGS_TITLE")
 	_lang_label.text = Localize.text("SETTINGS_LANG")
 	_keybind_label.text = Localize.text("SETTINGS_KEYBIND")
-	_keybind_note.text = Localize.text("SETTINGS_KEYBIND_TODO")
 	_close_btn.text = Localize.text("SETTINGS_CLOSE")
