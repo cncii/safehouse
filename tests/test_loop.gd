@@ -40,4 +40,25 @@ static func run(host) -> void:
 	host._t("LOOP-P13 three-tier efficiency conservation", bool(out.get("P13", false)))
 	host._t("LOOP-P20 countdown uses net gap not gross stock", bool(out.get("P20_pass", false)))
 	host._t("LOOP-P22-0 dismantle_bench immune to breach targeting", bool(out.get("P22_pass", false)))
+
+	# ── 破防目标选择与候选传入顺序无关（M30/M19 类确定性断言，修订 #8）──
+	# 判据定义来源：loop_system.gd pick_breach_target 注释（候选先按 facility_id 字典序
+	# 排序再取模——「建造顺序是玩家行为不是种子，不排序 = 重开能刷一个不疼的结果」）。
+	# 这条是 V5 变异体（破防候选不排序）的目标判据：变异删掉 sort() 后本条必红。
+	# 候选全部为非免疫设施（dismantle_bench 在 BREACH_IMMUNE 内，会被剔除，不用于本判据）。
+	var cands := PackedStringArray(["generator", "food", "mushroom_bed", "door_panel", "water"])
+	var base: String = ls.pick_breach_target(cands, 8, 7)
+	var order_independent := base != ""
+	var perms := [
+		["water", "generator", "food", "mushroom_bed", "door_panel"],
+		["mushroom_bed", "water", "door_panel", "generator", "food"],
+		["door_panel", "mushroom_bed", "generator", "water", "food"],
+		["food", "door_panel", "water", "mushroom_bed", "generator"],
+	]
+	for perm: Array in perms:
+		if String(ls.pick_breach_target(PackedStringArray(perm), 8, 7)) != base:
+			order_independent = false
+			break
+	host._t("LOOP-BREACH breach target choice is candidate-order independent",
+		order_independent)
 	ls.free()

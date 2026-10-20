@@ -62,8 +62,8 @@ Run-Stage "3 i18n 扫描" { python (Join-Path $PSScriptRoot "check_i18n.py") } 1
 # vitals 系统连带挂掉、8 条判据从未真跑；场景方式下 autoload 全就位，83 条断言真执行）
 # 修订（包 F）：godot 解析统一用 $godotBin（旧代码此处只查 PATH，GODOT_BIN 设了也白设——与 2b 不一致）。
 if ($godotBin) {
-    # 计数 = run_tests.gd MIN_ASSERTS（修订 #6 后 121，loop 修复后 122）
-    Run-Stage "4 无头单测" { & $godotBin --headless --path $projRoot res://tests/test_main.tscn } 121
+    # 计数 = run_tests.gd MIN_ASSERTS（修订 #7 后 130）
+    Run-Stage "4 无头单测" { & $godotBin --headless --path $projRoot res://tests/test_main.tscn } 130
 } else {
     Write-Host "`n===== stage 4: 跳过（godot 不在 PATH 且未设 GODOT_BIN）——判 '未生效'，不计通过 =====" -ForegroundColor Yellow
     $report.stages += @{ name = "4 无头单测"; ok = $false; asserts = 0; note = "not_effective: godot missing" }

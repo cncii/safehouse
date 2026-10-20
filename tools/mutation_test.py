@@ -25,11 +25,11 @@ REPORT = os.path.join(ROOT, "tools", "mutation_report.json")
 
 GODOT = os.environ.get("GODOT_BIN") or r"C:\Users\CQY\.workbuddy\binaries\godot\4.3\Godot_v4.3-stable_win64_console.exe"
 
-MIN_ASSERTS = 121   # run_tests.gd 修订 #6 后的门槛；变异不得改变断言总数
+MIN_ASSERTS = 130   # run_tests.gd 修订 #7 后的门槛；变异不得改变断言总数
 
 # 恒红 blocked 判据（与变异无关的固定红，从红集剔除——否则每个变异体都被判"误伤"）：
-#   LOOP-* 五条：loop_system.gd 编译失败（欠件退回包 B），修复前恒红。
-KNOWN_CONSTANT_REDS = ("LOOP-",)
+#   2026-10-20 loop_system 已修复（924b0f6），本轮无恒红项；机制保留备用。
+KNOWN_CONSTANT_REDS = ()
 
 
 def md5(path):
@@ -38,29 +38,31 @@ def md5(path):
 
 
 def apply_mutation(rel, old, new):
-    """把 old 替换为 new，必须恰好命中 1 次；返回原 md5。"""
+    """把 old 替换为 new（bytes 级，保留任意行尾），必须恰好命中 1 次；返回原 md5。
+
+    ⚠ 必须二进制模式：文本模式 universal-newlines 会把 CRLF 统一转 LF，
+    apply 一步就改坏整个文件的行尾，revert 后 md5 对不上（V5 首跑实测翻车）。
+    锚点必须写成不含行尾的单行片段。"""
     p = os.path.join(ROOT, rel)
     before = md5(p)
-    with open(p, "r", encoding="utf-8") as f:
-        src = f.read()
-    n = src.count(old)
+    with open(p, "rb") as f:
+        data = f.read()
+    old_b, new_b = old.encode("utf-8"), new.encode("utf-8")
+    n = data.count(old_b)
     if n != 1:
         raise RuntimeError(f"{rel}: 变异锚点命中 {n} 次（要求恰好 1 次），拒绝执行")
-    with open(p, "w", encoding="utf-8", newline="") as f:
-        f.write(src.replace(old, new))
+    with open(p, "wb") as f:
+        f.write(data.replace(old_b, new_b))
     return before
-
-
-def restore(rel, before_md5):
-    raise SystemExit  # 占位：用下方 replace-back 实现
 
 
 def revert_mutation(rel, old, new):
     p = os.path.join(ROOT, rel)
-    with open(p, "r", encoding="utf-8") as f:
-        src = f.read()
-    with open(p, "w", encoding="utf-8", newline="") as f:
-        f.write(src.replace(new, old))
+    with open(p, "rb") as f:
+        data = f.read()
+    old_b, new_b = old.encode("utf-8"), new.encode("utf-8")
+    with open(p, "wb") as f:
+        f.write(data.replace(new_b, old_b))
     return md5(p)
 
 
@@ -138,14 +140,14 @@ MUTANTS = [
     },
     {
         "id": "V5-breach-unsorted",
-        "desc": "破防候选不排序（loop_system.pick_breach_target 字典序+hash）",
+        "desc": "破防候选不排序（删 pick_breach_target 的字典序 sort）",
         "file": "src/systems/loop_system.gd",
-        "old": None, "new": None,
-        "runner": "blocked",
-        "target": ["M30/M19 类确定性断言"],
+        "old": "\tsorted.sort()",
+        "new": "\t# sorted.sort()  # MUTATED V5: sort removed",
+        "runner": "gd",
+        "target": ["LOOP-BREACH"],
         "chain_ok": [],
-        "expect_qa": "应红 M30/M19 类确定性断言 —— 本轮 blocked：loop_system.gd 编译失败"
-                     "（欠件退回包 B），变异体无法在坏脚本上区分红因，不得出假记录",
+        "expect_qa": "应红 M30/M19 类确定性断言（QA 任务书 §4）——目标 = LOOP-BREACH 顺序无关判据（修订 #8 补）",
     },
 ]
 

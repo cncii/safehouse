@@ -49,6 +49,7 @@ const CombatTests = preload("res://tests/test_combat.gd")
 const TechTests = preload("res://tests/test_tech.gd")
 const EventTests = preload("res://tests/test_events.gd")
 const LoopTests = preload("res://tests/test_loop.gd")
+const ActionTests = preload("res://tests/test_action.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
 # 修订 #1：vitals 段 8 条（M2 死钟/M2b/M3/M3b/M4×4）随场景方式修通，75 → 83。
@@ -58,8 +59,10 @@ const LoopTests = preload("res://tests/test_loop.gd")
 # 修订 #5：M2-c 前置段锚点 2 条（hunger 5 / thirst 7 per GH 设计定稿），120 → 122。
 # 修订 #6：变异 V4 实测 P1-1 formula 为恒真式（引用 vs 引用）→ 删除；phase-A 与
 #          overtime 改结构式（15G/9G）→ 122 → 121。
+# 修订 #7：loop_system 修复（924b0f6）LOOP-0 复活 121→122；M20 移植（test_action 7 条）
+#          + 破防顺序无关判据 1 条 → 122 → 130；A 组冻结基线随 UI 文案更新（16/17→25/33）。
 # 任何"少跑了"的情况都必须在这里吵出来，而不是让 coverage 行照常打印。
-const MIN_ASSERTS := 121
+const MIN_ASSERTS := 130
 
 # A1 扫描用的针。刻意用拼接写出来：本文件自身也携带这些针（自测夹具里有），
 # 若写成整串，扫描 tests/ 时会自命中。tests/ 已排除，但拼接是双保险。
@@ -73,19 +76,30 @@ var RE_KEY := "Localize\\.(?:text|textf)\\(\\s*\"([^\"]*)\""
 
 # A3-1 期望：17 处调用点里 16 处是字面量（vital_bar.gd 那处是 String(_name_key) 动态拼接），
 # 去重后 14 个 KEY，SETTINGS_TITLE / HUD_STAGE_UNKNOWN 各出现 2 次。
+# A3-1 期望：调用点 KEY 字面量多重集。
+# 修订 #7（2026-10-20）：逻辑组 924b0f6 新增循环面板 UI 文案（LOOP_BLOCK_/LOOP_CHAIN_/
+# LOOP_DATA_NOT_WIRED/LOOP_PANEL_TITLE/LOOP_REPORT_GAP，带 _ 后缀者为前缀拼接字面量），
+# 冻结基线随之更新 16 → 25。基线过时不是判据错也不是实现错——每次 UI 文案变更须同步本表。
 var EXPECT_KEYS: Array = [
-	"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
-	"HUD_STAGE_UNKNOWN", "HUD_STAGE_UNKNOWN", "HUD_VITAL_HP",
-	"LANG_NAME_EN", "LANG_NAME_ZH_CN", "LANG_NAME_ZH_TW",
-	"NO_SUCH_KEY_XYZ", "SETTINGS_CLOSE", "SETTINGS_KEYBIND",
-	"SETTINGS_KEYBIND_TODO", "SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
-]
+		"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
+		"HUD_STAGE_UNKNOWN", "HUD_STAGE_UNKNOWN", "HUD_VITAL_HP",
+		"LANG_NAME_EN", "LANG_NAME_ZH_CN", "LANG_NAME_ZH_TW",
+		"LOOP_BLOCK_", "LOOP_BLOCK_", "LOOP_CHAIN_", "LOOP_CHAIN_", "LOOP_CHAIN_",
+		"LOOP_DATA_NOT_WIRED", "LOOP_DATA_NOT_WIRED", "LOOP_PANEL_TITLE", "LOOP_REPORT_GAP",
+		"NO_SUCH_KEY_XYZ", "SETTINGS_CLOSE", "SETTINGS_KEYBIND",
+		"SETTINGS_KEYBIND_TODO", "SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
+	]
 
-# A3-3 期望：strings.csv 的 17 个 KEY（含未被调用的 HUD_VITAL_* / HUD_CLOCK_TIME）
+# A3-3 期望：strings.csv KEY 集合。
+# 修订 #7：随逻辑组循环面板文案更新 17 → 33（HUD×9 / LANG×3 / LOOP×16 / SETTINGS×5）。
 var EXPECT_CSV_KEYS: Array = [
 	"HUD_CLOCK_DAY", "HUD_CLOCK_TIME", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
 	"HUD_STAGE_UNKNOWN", "HUD_VITAL_HP", "HUD_VITAL_HUNGER", "HUD_VITAL_STAMINA",
 	"HUD_VITAL_THIRST", "LANG_NAME_EN", "LANG_NAME_ZH_CN", "LANG_NAME_ZH_TW",
+	"LOOP_BLOCK_FILTER_CORE", "LOOP_BLOCK_NONE", "LOOP_BLOCK_POWER", "LOOP_BLOCK_UNLOCK",
+	"LOOP_CHAIN_FOOD", "LOOP_CHAIN_MEDS", "LOOP_CHAIN_POWER", "LOOP_CHAIN_WATER",
+	"LOOP_COL_BLOCK", "LOOP_COL_CHAIN", "LOOP_COL_DAYS", "LOOP_COL_RATE", "LOOP_COL_STOCK",
+	"LOOP_DATA_NOT_WIRED", "LOOP_PANEL_TITLE", "LOOP_REPORT_GAP",
 	"SETTINGS_CLOSE", "SETTINGS_KEYBIND", "SETTINGS_KEYBIND_TODO", "SETTINGS_LANG",
 	"SETTINGS_TITLE",
 ]
@@ -155,6 +169,7 @@ func _ready() -> void:
 	TechTests.run(self)
 	EventTests.run(self)
 	LoopTests.run(self)
+	ActionTests.run(self)
 
 	_finish()
 
@@ -209,8 +224,9 @@ func _run_localize_asserts() -> void:
 	# 用完即 free（Node 非 RefCounted，不 free 会在退出时报 ObjectDB 泄漏）。
 	L._load()
 	# 空跑判负：表必须真的加载出来，否则下面所有值断言都在空表上跑（陷阱 2）
-	_t("A0-4 locale table loaded (size == 17, else all value asserts are void)",
-		L._table.size() == 17)
+	# 修订 #7：随逻辑组循环面板文案更新 17 → 33
+	_t("A0-4 locale table loaded (size == 33, else all value asserts are void)",
+		L._table.size() == 33)
 	if L._table.size() == 0:
 		_block(["A2-1", "A2-2", "A2-3", "A2-4", "A2-5", "A3-2", "A4-1"],
 			"blocked: locale table empty")
@@ -281,6 +297,9 @@ func _run_localize_asserts() -> void:
 	for k in EXPECT_KEYS:
 		if k == "NO_SUCH_KEY_XYZ":
 			continue      # 这条是故意不存在的键，A2-2 / A4-1 专门测它
+		if String(k).ends_with("_"):
+			continue      # 修订 #7：前缀拼接字面量（LOOP_BLOCK_ + 动态段）不是完整 KEY，
+			              # 完整键的 CSV 侧一致性由 A3-3 覆盖
 		if not csv_keys.has(k):
 			missing.append(k)
 	_t("A3-2 every call-site KEY exists in strings.csv (%d missing)" % missing.size(),

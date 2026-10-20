@@ -51,10 +51,13 @@
   },
   {
     "id": "V5-breach-unsorted",
-    "desc": "破防候选不排序（loop_system.pick_breach_target 字典序+hash）",
-    "blocked": true,
-    "captured": false,
-    "no_collateral": false,
-    "note": "应红 M30/M19 类确定性断言 —— 本轮 blocked：loop_system.gd 编译失败（欠件退回包 B），变异体无法在坏脚本上区分红因，不得出假记录"
+    "desc": "破防候选不排序（删 pick_breach_target 的字典序 sort）",
+    "file": "src/systems/loop_system.gd",
+    "red": [
+      "LOOP-BREACH breach target choice is candidate-order independent"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 M30/M19 类确定性断言（QA 任务书 §4）——目标 = LOOP-BREACH 顺序无关判据（修订 #8 补） → 捕获 ✓ 且无误伤 ✓"
   }
 ]
