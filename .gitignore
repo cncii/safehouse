@@ -14,3 +14,7 @@ Thumbs.db
 # 临时日志（import/验证过程产物）
 *.log
 _*.log
+
+# Python 字节码
+__pycache__/
+*.pyc
