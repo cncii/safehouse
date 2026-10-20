@@ -20,20 +20,59 @@ static func create() -> SteamService:
 
 var _backend: Object = null   # GodotSteam binding 或 SteamNull
 
+## GodotSteam GDExtension 的脚本绑定文件。不存在时必须**安全降级**而不是崩——
+## 架构 1012/1075 条：初始化失败必须走 NullSteam 降级并记日志。
+## S 构建（无 Steam 环境）下本文件根本不存在，属正常路径。
+const BINDING_PATH := "res://src/platform/steam_binding.gd"
+const NULL_PATH := "res://src/platform/steam_null.gd"
+
 func _ready() -> void:
 	if _try_init_godotsteam():
-		_backend = load("res://src/platform/steam_binding.gd").new()
-	else:
-		_backend = load("res://src/platform/steam_null.gd").new()
-		Logger.log("steam", "null_backend", "", null, "no steam env, NullSteam")
+		var b := load(BINDING_PATH)
+		if b != null:
+			_backend = b.new()
+			Logger.log("steam", "godotsteam_backend", BINDING_PATH)
+		else:
+			_degrade("binding_script_missing")
+	if _backend == null:
+		_degrade("init_failed")
 
+## 降级到 NullSteam：S 构建硬要求「脱离 Steam 可运行」（QA S 判据）
+func _degrade(reason: String) -> void:
+	_backend = load(NULL_PATH).new()
+	Logger.log("steam", "null_backend", reason, null, "no steam env / init failed, NullSteam fallback")
+
+## GodotSteam 是否可用。
+##
+## 判定方式：**只查 ClassDB 里有没有 `Steam` 这个已注册类**，不发起任何网络调用——
+## S9 硬约束「零网络出站」要求连"探测 SDK"都不能连网。
+## 注意：即使 GodotSteam 存在，steamInitEx() 也可能失败（无 Steam 客户端 / 凭据过期）；
+## 那种情况的"失败回连 Valve"行为**不在本函数判定范围**，需按架构 1075 条
+## 在带 SDK 的真实构建上用 Process Monitor 验证（本机无 SDK，无法在此断言）。
 func _try_init_godotsteam() -> bool:
-	# TODO 包 E：Steam.steamInitEx() 判定；注意验证"verify valve reconnect after init failure"
-	# （架构侧唯一待验证项——QA S9 出站 0 判据的唯一不确定处，Process Monitor 验证）
-	return false
+	if not ClassDB.class_exists("Steam"):
+		return false
+	# 类存在才继续：此处仍不发网络请求，只问引擎"这个单例在不在"
+	return Engine.has_singleton("Steam") or ClassDB.instantiate("Steam") != null
 
 func set_achievement(id: StringName) -> void:
+	if _backend == null:
+		return
 	_backend.call("set_achievement", id)
 
 func set_rich_presence(status: String) -> void:
+	if _backend == null:
+		return
 	_backend.call("set_rich_presence", status)
+
+## 后端类型（供 UI/诊断显示当前跑在 Steam 还是 NullSteam）
+func backend_kind() -> StringName:
+	if _backend == null:
+		return &"none"
+	if _backend.has_method("backend_id"):
+		return StringName(_backend.call("backend_id"))
+	return &"unknown"
+
+## 后端是否就绪（只读；不给外部可写引用——防绕过抽象层直接调后端）
+func backend_ready() -> bool:
+	return _backend != null

@@ -245,12 +245,16 @@ func _fire(ev: Dictionary, day: int, slot: int) -> Dictionary:
 		push_error("event_system: illegal impact kind '%s' for %s" % [kind, ev_id])
 		return {}
 	var entry := {"key": key, "day": day, "slot_index": slot, "effects_applied": effects.size()}
+	# source 必须是 "effect_sink"——契约 writers 白名单按 system 名注册，
+	# 事件系统自己没有写权限（架构 §3.7：产出 Effect 交给 EffectSink 落地）。
+	# 原先传 "event:"+ev_id 会让 apply() 判定越权并在 debug 构建 assert 崩。
+	# event_id 记在 event_log 里用于追溯，不必也不该进 source。
 	if _sink != null:
-		_sink.resolve(effects, StringName("event:" + ev_id))
+		_sink.resolve(effects, &"effect_sink")
 	else:
 		# 未入树（无头直调场景）时兜底：新建一个 EffectSink 落地，不静默丢弃效果
 		_sink = EffectSink.new()
-		_sink.resolve(effects, StringName("event:" + ev_id))
+		_sink.resolve(effects, &"effect_sink")
 	event_log.append(entry)     # C17 append-only：先落地再推存档
 	# 当天内不可回滚 → 强制立即存档（save_reason ∈ 白名单，S16）
 	Save.save("event_fired")

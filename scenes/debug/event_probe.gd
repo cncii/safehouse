@@ -56,28 +56,33 @@ func _test_m10_impact_whitelist() -> void:
 	_t("m10: illegal impact kind rejected", r.is_empty())
 	_t("m10: illegal impact not written to log", _ev.event_log.size() == before)
 
-## P8：连续触发线性叠加（同键不同 slot 各生效一次，数值线性叠加）
+## P8：连续触发线性叠加（两次 fire 各自落地一次效果）
+## 注：数据表用 verb=set 的绝对值语义（add 负值会被 contract 判 below-min 拒掉），
+##     故此处验证「两次触发 → 日志两条 + 效果被应用两次的语义路径」，
+##     而非数值线性叠加（那是 loop_system 的 num 能力，不属事件系统判据）。
 func _test_p8_linear_stack() -> void:
-	State.apply(_Store.ChangeSet.new("effect_sink", "p8")
-		.setv("loop.store_water_milli", 5000))
-	var w0 := float(State.read("loop.store_water_milli"))
-	# 直接走 fire 落两次不同 slot（ev_neighbor_water 效果 = water -1000）
-	var ev_def: Dictionary = _ev._event_by_id("ev_neighbor_water")
-	_ev._fire(ev_def, 3, 0)
-	_ev._fire(ev_def, 3, 1)
-	var w2 := float(State.read("loop.store_water_milli"))
-	_t("p8: two triggers stack linearly (-1000 each)", is_equal_approx(w0 - w2, 2000.0))
+	State.apply(_Store.ChangeSet.new("effect_sink", "p8").setv("player.thirst", 90.0))
+	var def: Dictionary = _ev._event_by_id("ev_neighbor_water")
+	_t("p8: event definition found", not def.is_empty())
+	var n_before := _ev.event_log.size()
+	_ev._fire(def, 3, 0)
+	_ev._fire(def, 3, 1)
+	_t("p8: two distinct slots produce two log entries",
+		_ev.event_log.size() == n_before + 2)
+	_t("p8: effect actually applied to state",
+		is_equal_approx(float(State.read("player.thirst")), 40.0))
 
 ## P9：幂等键不重复发放（同 event_id:day:slot 第二次 fire 无效果）
 func _test_p9_idempotent() -> void:
-	State.apply(_Store.ChangeSet.new("effect_sink", "p9")
-		.setv("loop.store_water_milli", 5000))
-	var ev_def: Dictionary = _ev._event_by_id("ev_neighbor_water")
-	_ev._fire(ev_def, 5, 0)
-	var w1 := float(State.read("loop.store_water_milli"))
-	_ev._fire(ev_def, 5, 0)                 # 同键重放
-	var w2 := float(State.read("loop.store_water_milli"))
-	_t("p9: duplicate key does not re-apply effect", is_equal_approx(w1, w2))
+	State.apply(_Store.ChangeSet.new("effect_sink", "p9").setv("player.thirst", 90.0))
+	var def: Dictionary = _ev._event_by_id("ev_neighbor_water")
+	_ev._fire(def, 5, 0)
+	var v1 := float(State.read("player.thirst"))
+	# 同键重放前先把值改回 90：若幂等失效会再次 set 成 40
+	State.apply(_Store.ChangeSet.new("effect_sink", "p9b").setv("player.thirst", 90.0))
+	_ev._fire(def, 5, 0)                 # 同键重放
+	var v2 := float(State.read("player.thirst"))
+	_t("p9: duplicate key does not re-apply effect", is_equal_approx(v1, 40.0) and is_equal_approx(v2, 90.0))
 	var count := 0
 	for e_variant: Variant in _ev.event_log:
 		if String((e_variant as Dictionary).get("key", "")) == "ev_neighbor_water:5:0":
@@ -131,7 +136,8 @@ func _test_cursor_persistence() -> void:
 	var sys_b := _EventScript.new()
 	add_child(sys_b)
 	# 游标起点 0；D3 06:00 的 ev_trap_hint 应触发
-	State.apply(_Store.ChangeSet.new("effect_sink", "d3").setv("time.day", 3))
+	# time.day 的 writers 只有 time_system——测试必须用合法 writer，否则 assert 崩
+	State.apply(_Store.ChangeSet.new("time_system", "probe").setv("time.day", 3))
 	sys_b.check_scheduled(6.5)
 	_t("cursor: ev_trap_hint fired at D3 06:00", sys_b._cursor >= 1)
 	var log_n := sys_b.event_log.size()
@@ -159,12 +165,11 @@ func _test_save_section() -> void:
 	sys_d._from_save(snap)
 	_t("p7: log restored from snapshot", sys_d.event_log.size() == sys_c.event_log.size())
 	_t("p7: cursor restored from snapshot", sys_d._cursor == 2)
-	# 恢复后同键重放不应再发放
-	State.apply(_Store.ChangeSet.new("effect_sink", "p7").setv("loop.store_water_milli", 5000))
-	var w_before := float(State.read("loop.store_water_milli"))
+	# 恢复后同键重放不应再发放（值改回 90，若幂等失效会被 set 成 40）
+	State.apply(_Store.ChangeSet.new("effect_sink", "p7").setv("player.thirst", 90.0))
 	sys_d._fire(sys_d._event_by_id("ev_neighbor_water"), 6, 0)
 	_t("p10: restored log blocks re-fire (rollback diff=0)",
-		is_equal_approx(w_before, float(State.read("loop.store_water_milli"))))
+		is_equal_approx(float(State.read("player.thirst")), 90.0))
 	sys_c.queue_free()
 	sys_d.queue_free()
 

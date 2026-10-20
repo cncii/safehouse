@@ -1,43 +1,44 @@
 {
   "_comment": "敌人参数权威源（包 C·事件与战斗组）。SpawnService 只按 enemy_id 查表，不内联参数、不掷骰（任务书 §4 #4：RNG 单一入口）。",
-  "_spec": "strength_multiplier 由 waves.json 每夜给出；实际 hp/damage = base × strength_multiplier，不在此预乘（单一事实源在 waves.json 的曲线）。",
-  "_constraint": "本表只放敌人自身属性（hp/damage/speed/attack_interval/breach_damage）。破防造成的门板扣减走 LoopSystem.pick_breach_target 选中的目标，不在本表重复定义（避免同一事实两处）。",
+  "_spec": "strength_mult 由 waves.json 每夜给出；实际 hp/damage = base × strength_mult，不在此预乘（单一事实源在 waves.json 的曲线）。",
+  "_constraint": "本表只放敌人自身属性。破防造成的门板扣减走 LoopSystem.pick_breach_target 选中的目标，不在本表重复定义（避免同一事实两处）。",
+  "_unit": "键名一律带单位后缀（M28-a）：max_hp=生命上限 / damage_ratio=伤害系数 / speed_px=像素每秒 / attack_interval_sec=攻击间隔秒 / breach_damage_ratio=破防伤害系数。",
 
   "enemies": {
     "zombie_shambler": {
       "name": "游荡者",
-      "hp": 40.0,
-      "damage": 8.0,
-      "speed": 18.0,
-      "attack_interval_s": 1.2,
-      "breach_damage": 10.0,
+      "max_hp": 40.0,
+      "damage_ratio": 8.0,
+      "speed_px": 18.0,
+      "attack_interval_sec": 1.2,
+      "breach_damage_ratio": 10.0,
       "_role": "夜1-2 主力，低血低伤，教会玩家翻滚时机"
     },
     "zombie_runner": {
       "name": "冲刺者",
-      "hp": 28.0,
-      "damage": 6.0,
-      "speed": 42.0,
-      "attack_interval_s": 0.8,
-      "breach_damage": 6.0,
+      "max_hp": 28.0,
+      "damage_ratio": 6.0,
+      "speed_px": 42.0,
+      "attack_interval_sec": 0.8,
+      "breach_damage_ratio": 6.0,
       "_role": "夜3+ 混入，压迫走位空间，逼玩家用翻滚而非站桩"
     },
     "zombie_breaker": {
       "name": "破门者",
-      "hp": 95.0,
-      "damage": 14.0,
-      "speed": 12.0,
-      "attack_interval_s": 1.6,
-      "breach_damage": 25.0,
+      "max_hp": 95.0,
+      "damage_ratio": 14.0,
+      "speed_px": 12.0,
+      "attack_interval_sec": 1.6,
+      "breach_damage_ratio": 25.0,
       "_role": "夜4+ 主力，高血高破防，是破防判据的主要压力来源"
     },
     "spitter_acid": {
       "name": "酸吐者",
-      "hp": 34.0,
-      "damage": 11.0,
-      "speed": 16.0,
-      "attack_interval_s": 1.4,
-      "breach_damage": 12.0,
+      "max_hp": 34.0,
+      "damage_ratio": 11.0,
+      "speed_px": 16.0,
+      "attack_interval_sec": 1.4,
+      "breach_damage_ratio": 12.0,
       "_role": "夜5+ 远程压制，迫使玩家不能只守门（引用 EffectSink spawn 能力，不新增第5类）"
     }
   }

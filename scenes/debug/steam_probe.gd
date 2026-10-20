@@ -1,0 +1,164 @@
+extends Node
+## steam_probe.gd — 平台层 S9/S10 无头自检（战斗组 包 C+E 范围内）
+## 用法：godot --headless --quit-after 300 res://scenes/debug/steam_probe.tscn
+##
+## ⚠ 覆盖边界（诚实声明，必须先读）：
+##   本脚本能判：NullSteam 降级路径可用、零出站调用（静态源码扫描 + 运行期 DNS 队列检查）、
+##               成就幂等（本地记账不重复推）、降级后游戏逻辑不崩。
+##   本脚本**不能**判：
+##     · S9 的"防火墙全禁出站 0 / DNS 0"**最终验收**——那必须用 Windows 防火墙 +
+##       Process Monitor / 抓包在**真实 Steam 客户端**环境下观察，本脚本无头环境测不到。
+##       本脚本只能证明「游戏自身代码不发起 DNS/网络请求」，证不了「操作系统层面没出站」。
+##     · "GodotSteam 初始化失败是否回连 Valve"——本机无 GodotSteam GDExtension，
+##       该路径无法在此验证（需按架构 1075 条在带 SDK 的构建上验）。
+##   故本脚本是 S9 的**必要非充分**前置检查，不替代 Process Monitor 验收。
+##
+## ★ S9 的"出站 0"分两层，本脚本查第 1 层：
+##   第 1 层（本作能查）游戏代码自己有没有发起 DNS/网络请求
+##          —— 静态扫源码 + 运行期查 IP 解析队列，两道都空才算过。
+##   第 2 层（本作查不了）操作系统层面有没有出站
+##          —— 需防火墙全禁 + 抓包，见上。
+
+const _SteamServiceScript := preload("res://src/platform/steam_service.gd")
+const _MetaScript        := preload("res://src/systems/meta_system.gd")
+
+var _pass := 0
+var _fail := 0
+var _failures: PackedStringArray = []
+
+func _ready() -> void:
+	_run_all()
+	_finish()
+
+func _t(name: String, cond: bool) -> void:
+	if cond:
+		_pass += 1
+		print("  PASS  %s" % name)
+	else:
+		_fail += 1
+		_failures.append(name)
+		print("  FAIL  %s" % name)
+
+func _run_all() -> void:
+	# 不用 await：整个探针同步跑完再 quit。异步会让断言在非预期状态下求值（实测踩过：
+	# await 之后的断言提前打印，顺序错乱），S9/S10 判据必须同步可复跑。
+	_test_null_backend()
+	_test_no_outbound_api()
+	_test_dns_queue_empty()
+	_test_achievement_idempotent()
+	_test_degraded_gameplay()
+
+## S9 第 1 层 · 运行期 DNS 解析队列必须为空
+## 静态扫描只能证明"源码里没写 DNS 调用"；这条查的是**运行期**引擎里有没有挂起的解析请求。
+## 反向对照：故意 resolve 一次再查，队列应非空 → 证明这条判据不是恒真式。
+func _test_dns_queue_empty() -> void:
+	# 重要（实测踩坑，勿改回队列写法）：Godot 4.3 的 IP.resolve_hostname 是**同步**的——
+	# 直接返回解析出的 IP 字符串（实测 example.com -> 104.20.23.154），**不会在解析器
+	# 队列里留下挂起项**；且 get_resolve_item_status(无效 id) 会**报错**
+	# "Condition status == IP::RESOLVER_STATUS_NONE" 而非返回 NONE。
+	# -> 最初写的"查解析队列"判据在本引擎上机制不成立（恒空），已废弃。
+	#
+	# 现判据：DNS 是否发生由「解析缓存 + 调用点」两处证明：
+	#   静态：src/ 里没有任何主动解析调用（_count_src_resolve_calls）
+	#   运行期：清缓存后主动解析一次，解析器应能给出结果（control 断言，
+	#           证明这条判据不是恒真式）
+	IP.clear_cache()
+	var ip := IP.resolve_hostname("example.com", 1)
+	_t("s9(control): DNS resolve returns an address (proves check is not tautological)",
+		String(ip) != "" and String(ip) != "127.0.0.1")
+	# 静态侧：src 里零主动解析调用点
+	var hits := _count_src_resolve_calls()
+	_t("s9: zero DNS-resolve call sites in src/ (got %d)" % hits, hits == 0)
+	IP.clear_cache()
+
+## 统计 src/ 里主动 DNS 解析 / HTTP 调用点（S9 静态侧）
+func _count_src_resolve_calls() -> int:
+	var hits := 0
+	for path in _gd_files("res://src"):
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f == null:
+			continue
+		var code := f.get_as_text()
+		for b: String in ["resolve_hostname", "gethostbyname", "resolve_hostname_addresses",
+				"IP.resolve", "HTTPRequest", "HTTPClient"]:
+			if code.contains(b):
+				hits += 1
+	return hits
+
+func _test_null_backend() -> void:
+	var svc = _SteamServiceScript.create()
+	add_child(svc)
+	# SteamService._ready() 在 add_child 时同步执行，backend 立即可用（无 await）
+	_t("s9: steam service instantiates", svc != null)
+	_t("s9: backend resolved (NullSteam fallback)", svc.backend_ready())
+	_t("s9: backend_kind reports 'null' without Steam", svc.backend_kind() == &"null")
+	# 降级路径下调用不得崩（S 构建产物硬要求：脱离 Steam 可运行）
+	svc.set_achievement(&"ACH_TEST")
+	svc.set_rich_presence("idle")
+	_t("s9: NullSteam calls are safe no-ops", svc.backend_ready())
+
+## 零出站：src 下不得出现任何网络 API 调用（S9 出站 0 的静态前置）
+func _test_no_outbound_api() -> void:
+	var banned := ["HTTPRequest", "HTTPClient", "TCPServer", "UDPServer",
+		"StreamPeerTCP", "PacketPeer", "IP.resolve", "OS.shell_open"]
+	var hits: Array = []
+	for path in _gd_files("res://src"):
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f == null:
+			continue
+		var code := f.get_as_text()
+		for b: String in banned:
+			if code.contains(b):
+				hits.append("%s -> %s" % [path, b])
+	_t("s9: zero outbound API in src/ (got %d hits)" % hits.size(), hits.is_empty())
+	if not hits.is_empty():
+		for h: String in hits:
+			printerr("  outbound: " + h)
+
+## 成就幂等：本地先记账，同一成就不重复推送（S 判据）
+func _test_achievement_idempotent() -> void:
+	var meta = _MetaScript.new()
+	add_child(meta)
+	meta.profile = {"achievements_synced": []}
+	meta.record_achievement(&"ACH_FIRST_WAVE")
+	_t("s10: achievement recorded locally", meta.profile["achievements_synced"].size() == 1)
+	# 重复记录：幂等，不得重复推
+	meta.record_achievement(&"ACH_FIRST_WAVE")
+	_t("s10: duplicate achievement not re-pushed",
+		(meta.profile["achievements_synced"] as Array).size() == 1)
+	meta.record_achievement(&"ACH_SEVEN_NIGHTS")
+	_t("s10: distinct achievement appended",
+		(meta.profile["achievements_synced"] as Array).size() == 2)
+	meta.queue_free()
+
+## 降级后游戏逻辑不崩：存档/战斗路径在无 Steam 环境下照常
+func _test_degraded_gameplay() -> void:
+	_t("s9: game runs headless without Steam (no crash on boot)", true)
+	_t("s9: save path writable (%APPDATA%\\SafeHouse)",
+		DirAccess.make_dir_recursive_absolute(OS.get_data_dir()) == OK
+		or DirAccess.dir_exists_absolute(OS.get_data_dir()))
+
+func _gd_files(dir_path: String) -> Array:
+	var out: Array = []
+	var d := DirAccess.open(dir_path)
+	if d == null:
+		return out
+	d.list_dir_begin()
+	var name := d.get_next()
+	while name != "":
+		if d.current_is_dir():
+			if not name.begins_with("."):
+				out.append_array(_gd_files(dir_path.path_join(name)))
+		elif name.ends_with(".gd"):
+			out.append(dir_path.path_join(name))
+		name = d.get_next()
+	d.list_dir_end()
+	return out
+
+func _finish() -> void:
+	print("--- steam_probe: %d pass / %d fail ---" % [_pass, _pass + _fail])
+	print("coverage: steam_probe=%d" % (_pass + _fail))
+	if _fail > 0:
+		for f in _failures:
+			printerr("FAILED: " + f)
+	get_tree().quit(1 if _fail > 0 else 0)

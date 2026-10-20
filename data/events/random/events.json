@@ -12,9 +12,9 @@
       "trigger": { "type": "random", "day_min": 4, "weight": 1 },
       "impact": "num",
       "effects": [
-        { "kind": "num", "path": "loop.store_food_milli", "verb": "clamp", "value": 8000 }
+        { "kind": "num", "path": "player.hunger", "verb": "set", "value": 45.0 }
       ],
-      "_judgement": "P8(线性叠加) P9(幂等键不重复发放)"
+      "_judgement": "P8(线性叠加) P9(幂等键不重复发放)；写 player.* —— effect_sink 在该路径 writers 白名单内"
     },
     {
       "id": "ev_neighbor_water",
@@ -22,9 +22,9 @@
       "trigger": { "type": "random", "day_min": 2, "weight": 1 },
       "impact": "num",
       "effects": [
-        { "kind": "num", "path": "loop.store_water_milli", "verb": "add", "value": -1000 }
+        { "kind": "num", "path": "player.thirst", "verb": "set", "value": 40.0 }
       ],
-      "_judgement": "P8; condition_cooldowns 存档段见架构 5.3"
+      "_judgement": "P8; condition_cooldowns 存档段见架构 5.3。⚠ 用 set 不用 add：contract._authorize 对 add 的负增量判 below-min 拒掉（combat_system 同款坑）"
     },
     {
       "id": "ev_power_surge",

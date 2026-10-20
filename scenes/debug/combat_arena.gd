@@ -51,7 +51,7 @@ func _run_m19() -> void:
 		"spawned": _spawned_count,
 		"gh": float(det.get("materialized_gh", -1.0)),
 		"hash": det.get("plan_hash", 0),
-		"strength": float(plan.get("strength_multiplier", 1.0)),
+		"strength": float(plan.get("strength_mult", 1.0)),
 		"batches": "%d/%d" % [int(bp.get("done", 0)), int(bp.get("total", 0))],
 	}
 	print("[M19] ", _m19_report)

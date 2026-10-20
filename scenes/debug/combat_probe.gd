@@ -116,8 +116,8 @@ func _test_w2_materialize() -> void:
 	_t("w2: every slot resolved hp>0 (enemy table hit)", hp_ok)
 	var p7 := _combat.materialize_wave_plan(7, 14)
 	_t("w2: night7 slot total == 15", (p7.get("slots", []) as Array).size() == 15)
-	_t("w2: night1 strength == 1.0", is_equal_approx(float(p1.get("strength_multiplier", 0.0)), 1.0))
-	_t("w2: night7 strength == 2.32", is_equal_approx(float(p7.get("strength_multiplier", 0.0)), 2.32))
+	_t("w2: night1 strength == 1.0", is_equal_approx(float(p1.get("strength_mult", 0.0)), 1.0))
+	_t("w2: night7 strength == 2.32", is_equal_approx(float(p7.get("strength_mult", 0.0)), 2.32))
 	_t("w2: unknown night -> empty plan, no crash", (_combat.materialize_wave_plan(99, 99).get("slots", []) as Array).is_empty())
 
 func _test_w2_determinism() -> void:

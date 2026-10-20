@@ -75,12 +75,13 @@ func _load_tunables() -> void:
 	var d: Variant = JSON.parse_string(f.get_as_text())
 	if typeof(d) != TYPE_DICTIONARY:
 		return
-	_stamina_attack = float(d.get("combat_stamina_attack_cost", _stamina_attack))
-	_stamina_dodge  = float(d.get("combat_stamina_dodge_cost", _stamina_dodge))
-	_dmg_base  = float(d.get("combat_damage_base", _dmg_base))
-	_dmg_boost = float(d.get("combat_damage_boost", _dmg_boost))
-	_dmg_apex  = float(d.get("combat_damage_apex", _dmg_apex))
-	_dps_effective = float(d.get("combat_dps_effective", _dps_effective))
+	# 注：键名带单位后缀（M28-a）：_units=点/次数，_dps=每秒伤害
+	_stamina_attack = float(d.get("combat_stamina_attack_units", _stamina_attack))
+	_stamina_dodge  = float(d.get("combat_stamina_dodge_units", _stamina_dodge))
+	_dmg_base  = float(d.get("combat_damage_base_units", _dmg_base))
+	_dmg_boost = float(d.get("combat_damage_boost_units", _dmg_boost))
+	_dmg_apex  = float(d.get("combat_damage_apex_units", _dmg_apex))
+	_dps_effective = float(d.get("combat_dps_effective_ratio", _dps_effective))
 
 ## 热重载（combat_arena 调参用，不重开场景）
 func reload_tunables() -> void:
@@ -174,7 +175,7 @@ func begin_wave(night_index: int, calendar_day: int = -1) -> Dictionary:
 		var s: Dictionary = s_variant
 		var b := int(s.get("batch", 0))
 		_batch_slots[b] = int(_batch_slots.get(b, 0)) + 1
-	_strength = float(plan.get("strength_multiplier", 1.0))
+	_strength = float(plan.get("strength_mult", 1.0))
 	wave_active = true
 	# plan_hash 入状态契约（writer 含 combat_system）：M19/P7 读档后重算比对的锚点。
 	# int 存 hash 的一部分，仅作「同一夜同一物化结果」的等值标记，不用于反推内容。
@@ -188,15 +189,15 @@ func begin_wave(night_index: int, calendar_day: int = -1) -> Dictionary:
 ## ── W2 · wave_plan 物化 ────────────────────────────────────────────────
 ## 读 waves.json 的该夜配置 → 逐 batch 按槽位展开 spawn slot。
 ## 每 slot 固定产出 {batch, slot, enemy_id, entry_point, hp, damage, ...}，
-## 参数由 enemies.json 查表 × strength_multiplier（同事实单一来源，不内联不掷骰）。
+## 参数由 enemies.json 查表 × strength_mult（同事实单一来源，不内联不掷骰）。
 func materialize_wave_plan(night_index: int, calendar_day: int = -1) -> Dictionary:
 	var cfg := _load_wave_config(night_index)
 	if cfg.is_empty():
 		push_warning("combat_system: waves.json has no night %d config - empty plan" % night_index)
 		return {"night_index": night_index, "slots": [], "batch_count": 0,
-			"strength_multiplier": 1.0, "plan_hash": 0, "materialized_gh": -1.0}
+			"strength_mult": 1.0, "plan_hash": 0, "materialized_gh": -1.0}
 	var day := calendar_day if calendar_day > 0 else int(State.read("time.day"))
-	var strength := float(cfg.get("strength_multiplier", 1.0))
+	var strength := float(cfg.get("strength_mult", 1.0))
 	var table := _load_enemy_table()
 	var slots: Array = []
 	for b_variant: Variant in cfg.get("batches", []):
@@ -214,12 +215,14 @@ func materialize_wave_plan(night_index: int, calendar_day: int = -1) -> Dictiona
 				"slot": slot,
 				"enemy_id": enemy_id,
 				"entry_point": entry_point,
-				"strength_multiplier": strength,
-				"hp": float(enemy.get("hp", 0.0)) * strength,
-				"damage": float(enemy.get("damage", 0.0)) * strength,
-				"speed": float(enemy.get("speed", 0.0)),
-				"attack_interval_s": float(enemy.get("attack_interval_s", 1.0)),
-				"breach_damage": float(enemy.get("breach_damage", 0.0)) * strength,
+				"strength_mult": strength,
+				# 敌人属性键名带单位后缀（M28-a）：max_hp / damage_ratio / speed_px /
+				# attack_interval_sec / breach_damage_ratio
+				"hp": float(enemy.get("max_hp", 0.0)) * strength,
+				"damage": float(enemy.get("damage_ratio", 0.0)) * strength,
+				"speed": float(enemy.get("speed_px", 0.0)),
+				"attack_interval_s": float(enemy.get("attack_interval_sec", 1.0)),
+				"breach_damage": float(enemy.get("breach_damage_ratio", 0.0)) * strength,
 				# slot_variant 仅作表现层抖动（如朝向/步态），不参与任何 L1 判定
 				"slot_variant": int(absi(hv) % 1000),
 			})
@@ -227,7 +230,7 @@ func materialize_wave_plan(night_index: int, calendar_day: int = -1) -> Dictiona
 	var plan := {
 		"night_index": night_index,
 		"calendar_day": day,
-		"strength_multiplier": strength,
+		"strength_mult": strength,
 		"batch_count": cfg.get("batches", []).size(),
 		"slots": slots,
 		"materialized_gh": gh,     # 物化时刻锚点：M19 要求 18:00±1 帧
@@ -363,7 +366,7 @@ func wave_plan() -> Dictionary:
 func plan_total() -> int:
 	return _plan_total
 
-func strength_multiplier() -> float:
+func strength_mult() -> float:
 	return _strength
 
 func batches_progress() -> Dictionary:
