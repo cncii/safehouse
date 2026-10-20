@@ -17,7 +17,7 @@
 | §A 修订 #2（M30 `216%60` 恒假） | 确认**判据写错、实现正确**，与战斗组 14:30 前的上报一致 |
 | §A `test_combat` M19 四条全绿 | ✅ 战斗组 W2 交付被验收 |
 | §A `test_events` M10 三条全绿 | ✅ 战斗组 W3 交付被验收 |
-| **§B B10 S9/S10**（划归包 C+E+老板） | **已推进**，见第 8.1 节：S10 做成 **20 条**机械断言（20/20 绿，连跑 3 次稳定），S9 第 1 层做成 2 条（12/12 绿）；第 2 层（OS 层面出站 0）仍需外部工具 |
+| **§B B10 S9/S10**（划归包 C+E+老板） | **已推进**，见第 8.1 节：S10 做成 **21 条**机械断言（21/21 绿，连跑 3 次稳定），S9 第 1 层做成 2 条（12/12 绿）；第 2 层（OS 层面出站 0）仍需外部工具 |
 | 欠件：github.com 直连 reset | ✅ **已同步**。远端 `main` = `e0f9bc0` = 本地 HEAD；战斗组 `6d4a267`/`39331b2` 均在远端。直连不通时走 `tools/gh_push_api.py` API 通道（token 只走环境变量） |
 | 欠件：判据表 85+ 条落盘 | 战斗组这边的判据已全部落盘在 `tools/`+`scenes/debug/` 探针与本文档第 4 节映射表；M12b/M15/M22 原文仍需 QA 落盘 |
 
@@ -25,7 +25,7 @@
 
 ## 1. 一句话状态
 
-W1–W4 全部落地，战斗组自建**四套**无头自检共 **105 条断言全绿**（41+33+12+20）；
+W1–W4 全部落地，战斗组自建**四套**无头自检共 **106 条断言全绿**（41+33+12+21）；
 GitHub 已同步（远端 = 本地 HEAD）。
 **全量验收入口 `tools/test.ps1` 当前 exit=1**，唯一阻塞点在**包 D 表现组的在制品**（见第 5 节），战斗组文件零 BROKEN。
 
@@ -73,13 +73,13 @@ Set-Location "<项目>\safehouse"
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/combat_probe.tscn   # 期望 41/41, EXIT=0
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/event_probe.tscn    # 期望 33/33, EXIT=0
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/steam_probe.tscn    # 期望 12/12, EXIT=0
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn      # 期望 20/20, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn      # 期望 21/21, EXIT=0
 
 # 全量验收入口（注意：当前 exit=1，见第 5 节）
 powershell -ExecutionPolicy Bypass -File tools\test.ps1
 ```
 
-> 战斗组自检合计 **105 条断言**（41+33+12+20）。
+> 战斗组自检合计 **106 条断言**（41+33+12+21）。
 
 > ⚠ **`--quit-after 400` 必须带**：探针会 `get_tree().quit()`，但若加载失败引擎不会自动退出，
 > 不加这个参数 CI 会挂死（实测踩过：某次失败时挂了 180 秒直到超时）。
@@ -207,10 +207,10 @@ BROKEN  res://tests/run_tests.gd:75
 
 ### 8.1 B10 进展（S9/S10）
 
-**S10 PII 扫描 —— 已做成可复跑机械判定，新增 `scenes/debug/pii_probe.tscn`，20/20 全绿。**
+**S10 PII 扫描 —— 已做成可复跑机械判定，新增 `scenes/debug/pii_probe.tscn`，21/21 全绿。**
 
 ```powershell
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn   # 期望 20/20, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn   # 期望 21/21, EXIT=0
 ```
 
 三条防假绿设计（缺一条这条判据就没意义）：
