@@ -365,7 +365,8 @@ func verify_loop_balance() -> Dictionary:
 	out["P13"] = _verify_overflow_conservation()
 
 	# ── P20：倒计时用净缺口而不是毛存量 ──
-	var save_level := _level["FOOD"]
+	# `_level` 是无类型 Dictionary，`:=` 推不出类型 → 显式标 int
+	var save_level: int = _level["FOOD"]
 	_unlocked["FOOD"] = false                     # 断链 → rate 0
 	var st := _chain_status(&"FOOD", _demand_food_per_day)
 	var expect_days := (float(_store_milli.get("FOOD", 0)) / float(PROD_SCALE)) / _demand_food_per_day
