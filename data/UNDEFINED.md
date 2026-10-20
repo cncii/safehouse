@@ -83,4 +83,6 @@
 | # | 被谁需要 | 缺什么 | 影响什么 | 谁能定 | 阻塞什么 |
 |---|---|---|---|---|---|
 | D-015 | `tools/ui_screenshot_runner.gd`（S5） | 27 组合的具体清单：三分辨率（工具默认 1280×720 / 1920×1080 / 2560×1440）、三模式（窗口 / 无边框 / 独占全屏）、DPI 100/125/150（以 content_scale_factor 模拟系统 DPI，CANVAS_ITEMS 口径） | 27 组合截图包口径与 S5 红绿结论（本轮按默认清单已跑：**0 越界 PASS**，见 `build/s5_report.md`） | 老板 | S5 交付定稿 |
-| D-016 | `src/systems/audio_system.gd` | 音频素材全套：`assets/audio/sfx/{alarm_hunger, alarm_thirst, heartbeat}.ogg`（循环）；溢出预警一次性音效（P20，触发源等 W2 库存两级预警接线）；任一 BGM（`assets/audio/bgm/`） | M 组"可听警报"判据代码侧已绿（ui_smoke 8 条断言），听感无法佐证；素材按 `<id>.ogg\|wav\|mp3` 约定路径落位后**零代码改动自动生效** | 老板 / 美术（素材包接入） | 音频判据的录屏佐证；试玩听感 |
+| D-016 | `src/systems/audio_system.gd` | 音频素材全套：`assets/audio/sfx/{alarm_hunger, alarm_thirst, heartbeat}.ogg`（循环）；**stock_warn.ogg（P20 库存预警一次性音效，W2 已接线，沿触发）**；任一 BGM（`assets/audio/bgm/`） | M 组"可听警报"判据代码侧已绿（ui_smoke 8 条断言），听感无法佐证；素材按 `<id>.ogg\|wav\|mp3` 约定路径落位后**零代码改动自动生效** | 老板 / 美术（素材包接入） | 音频判据的录屏佐证；试玩听感 |
+| D-017 | W2 块3 库存两级预警（`src/ui/hud/hud_loop_panel.gd` 着色 + `src/systems/audio_system.gd` 一次性音效） | `data/balance/survival.json` 缺 `stock_warn_yellow_days` / `stock_warn_red_days`（键名为表现组约定，可改定）。任务书 §4.3 判据表述"<2 天黄"按数值纪律**未抄进代码** | 阈值缺键 = 两级预警整体降级：面板不着色、audio 静默（ui_smoke 有降级断言）；键值落位**零代码改动生效** | 老板 / 数值组（键名 + 黄红两档天数） | 块3 黄→红演示与录屏佐证 |
+| D-018 | W2 块1"建造/停机瞬间三行"（任务书 §4.1 设施名 Lv 维度） | `data/facilities/facilities.json` 不存在（`loop_system.gd` 头注释引用它，目录为空） | 块1 降级为**链维度**报告（缺口/库存/耗尽天数由 `maintenance_urgency()` 同源导出，已实现）；设施名/等级/单设施产出无处可读 | 逻辑组 / 老板（设施清单数据源） | 设施级缺口报告演示 |

@@ -11,7 +11,7 @@ extends Control
 ##   scenes/ui/hud_graybox.tscn 直接挂本脚本；或在任意场景里 add_child(HudRoot.new())
 ##
 ## ── TODO ──
-##  [ ] W2：链状态面板挂到本根的右侧（不要新开一个根，否则两套布局要各自适配分辨率）
+##  [x] W2：链状态面板挂到本根（HudLoopPanel，同根共享分辨率适配）
 ##  [ ] W3：由 scene_router 统一挂接，不再手动 add_child
 
 func _ready() -> void:
@@ -31,6 +31,11 @@ func _build() -> void:
 	panel.add_child(clock)
 	var vitals := HudVitals.new()
 	panel.add_child(vitals)
+
+	# W2：三块硬 UI（瞬间报告 + 链状态面板 + 两级预警）挂同根，共享一套分辨率适配
+	var loop_panel := HudLoopPanel.new()
+	loop_panel.position = Vector2(HudStyle.PANEL_PAD, HudStyle.PANEL_PAD + 64.0)
+	add_child(loop_panel)
 
 	# W4：音频警报随 HUD 生命周期（纯消费者，只读订阅 State）
 	add_child(AudioSystem.new())

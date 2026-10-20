@@ -16,3 +16,19 @@ SETTINGS_CLOSE,关闭,關閉,Close
 LANG_NAME_ZH_CN,简体中文,简体中文,Simplified Chinese
 LANG_NAME_ZH_TW,繁體中文,繁體中文,Traditional Chinese
 LANG_NAME_EN,English,English,English
+LOOP_PANEL_TITLE,链状态,鏈狀態,Chains
+LOOP_COL_CHAIN,链,鏈,Chain
+LOOP_COL_RATE,产出/天,產出/天,Out/d
+LOOP_COL_STOCK,库存,庫存,Stock
+LOOP_COL_DAYS,撑几天,撐幾天,Days
+LOOP_COL_BLOCK,卡点,卡點,Block
+LOOP_CHAIN_FOOD,菌菇食物,菌菇食物,Mushroom Food
+LOOP_CHAIN_WATER,净水,淨水,Clean Water
+LOOP_CHAIN_MEDS,药品,藥品,Meds
+LOOP_CHAIN_POWER,电力,電力,Power
+LOOP_BLOCK_UNLOCK,未解锁,未解鎖,Locked
+LOOP_BLOCK_POWER,未供电,未供電,No Power
+LOOP_BLOCK_FILTER_CORE,滤芯脏,濾芯髒,Filter Dirty
+LOOP_BLOCK_NONE,正常,正常,OK
+LOOP_REPORT_GAP,⚠ {chain} 缺口 {gap}/天 —— 库存 {stock}，约 {days} 天后耗尽,⚠ {chain} 缺口 {gap}/天 —— 庫存 {stock}，約 {days} 天後耗盡,⚠ {chain} gap {gap}/d - stock {stock}, runs out in ~{days}d
+LOOP_DATA_NOT_WIRED,循环数据未接线,循環數據未接線,Loop data not wired

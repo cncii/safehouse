@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_hud_root()
 	_test_settings_language_switch()
+	await _test_loop_panel()
 	_test_audio_alarms()
 	_finish()
 
@@ -95,14 +96,85 @@ func _test_clock() -> void:
 	clock.queue_free()
 
 # ── HUD 组装根 ──
-# 能抓：HudRoot 忘了加 HudVitals/HudClock/AudioSystem（W2 接新面板时最容易漏）。
+# 能抓：HudRoot 忘了加 HudVitals/HudClock/AudioSystem/HudLoopPanel（W2 接新面板时最容易漏）。
 func _test_hud_root() -> void:
 	var hud := HudRoot.new()
 	add_child(hud)
 	_t("hud_root: has clock child", _has_type(hud, "HudClock"))
 	_t("hud_root: has vitals child", _has_type(hud, "HudVitals"))
 	_t("hud_root: has audio child", _has_type(hud, "AudioSystem"))
+	_t("hud_root: has loop panel child", _has_type(hud, "HudLoopPanel"))
 	hud.queue_free()
+
+# ── W2 三块硬 UI（瞬间报告 + 链状态面板 + 两级预警）──
+# 能抓：面板行数硬编码成 4/5（动态渲染被改坏 → 接口加链必返工的根）、
+#       链名/卡点退化成裸 KEY（strings.csv 缺 LOOP_* 键）、
+#       wiring 缺位时面板崩溃而不是降级、阈值缺键时误着色（D-017 降级路径）。
+# LoopSystem 由本测试 wiring 到 /root（名字必须是 "LoopSystem"，与 combat_system 的
+# get_node_or_null("/root/LoopSystem") 约定一致）——真实 wiring 是 core 欠件。
+func _test_loop_panel() -> void:
+	# ① wiring 缺位路径：必须降级显示，不许崩
+	var panel := HudLoopPanel.new()
+	add_child(panel)
+	_t("loop_panel: unwired shows fallback text",
+		panel._report_label.text == Localize.text("LOOP_DATA_NOT_WIRED"))
+	_t("loop_panel: unwired grid keeps only header row", panel._grid.get_child_count() == 5)
+
+	# ② wiring LoopSystem（冷启动，balance 从 loop.json 读）
+	# 注意：场景根 _ready 期间 root 正在 setup children，直接 add_child 会被拒
+	# （实测报 "Parent node is busy setting up children"）→ 必须 deferred + 跨帧等待。
+	var loop_node: Node = (load("res://src/systems/loop_system.gd") as GDScript).new()
+	loop_node.name = "LoopSystem"
+	get_tree().root.add_child.call_deferred(loop_node)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	panel._on_loop_changed(&"", "test-refresh")   # 模拟 State loop 段变化回调
+
+	var urg: Dictionary = loop_node.maintenance_urgency()
+	_t("loop_panel: wiring binds after add_child", panel._loop == loop_node)
+	_t("loop_panel: row count follows interface (dynamic, no hardcode)",
+		panel._grid.get_child_count() == 5 + urg.size() * 5)
+
+	# ③ 每条链的渲染与接口逐格一致（不硬编码初始解锁状态）
+	var rows_ok := true
+	var names_ok := true
+	for i: int in urg.size():
+		var res: String = urg.keys()[i]
+		var st: Dictionary = urg[res]
+		var base := 5 + i * 5
+		var name_l: Label = panel._grid.get_child(base)
+		var rate_l: Label = panel._grid.get_child(base + 1)
+		var block_l: Label = panel._grid.get_child(base + 4)
+		if name_l.text != Localize.text("LOOP_CHAIN_" + res):
+			names_ok = false
+		if rate_l.text != "%.2f" % float(st["rate_per_day"]):
+			rows_ok = false
+		if block_l.text != Localize.text("LOOP_BLOCK_" + String(st["blocked_at"]).to_upper()):
+			rows_ok = false
+	_t("loop_panel: chain names localized (not raw KEY)", names_ok)
+	_t("loop_panel: rate/block cells match interface", rows_ok)
+
+	# ④ 块3 降级路径：survival.json 无阈值键（D-017）→ 一律不着色
+	var warn_off := true
+	for i: int in urg.size():
+		var cell: Label = panel._grid.get_child(5 + i * 5)
+		if cell.get_theme_color("font_color") != HudStyle.COLOR_TEXT:
+			warn_off = false
+	_t("loop_panel: missing warn keys keep neutral color (D-017 fallback)", warn_off)
+
+	# ⑤ 块1：冷启动 stock=0 → 无"约 X 天后耗尽"行（不显示除零产物）
+	_t("loop_panel: zero stock renders no gap report", panel._report_label.text == "")
+
+	# ⑥ audio 侧：阈值缺键 → stock warn 静默，不误播
+	var audio := AudioSystem.new()
+	add_child(audio)
+	audio._on_loop_changed(&"", "test-refresh")
+	_t("audio: stock warn stays silent when thresholds missing (D-017)",
+		audio._stock_warn_active == false)
+
+	audio.queue_free()
+	panel.queue_free()
+	loop_node.queue_free()
 
 # ── 设置页切语言 ──
 # 能抓：切语言后 UI 树没被重刷（S8 回归）、或者设了语言但没落回 zh_CN 影响后续用例。

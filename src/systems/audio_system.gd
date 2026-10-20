@@ -10,7 +10,7 @@ extends Node
 ##              显示/反馈阈值不进 data/balance/**，HUD 与 audio 必须读同一份，不许留副本）
 ## ── 素材 ──   res://assets/audio/{sfx,bgm} 当前为空。按 <id>.ogg|wav|mp3 约定路径加载，
 ##              缺失时 push_warning 一次并静默降级——素材落位后无需改代码。
-## ── 判据 ──   M 组警报项（饥饿/渴 <25% 可听警报）P20(溢出预警一次性音效)
+## ── 判据 ──   M 组警报项（饥饿/渴 <25% 可听警报）P20(库存预警一次性音效，W2 接线)
 ##              R20(体力 ≤10% 低频心跳音)
 ##
 ## ── 挂载 ──   由 HudRoot._build() 实例化为子节点（音频随 HUD 生命周期）；
@@ -36,6 +36,8 @@ var _sfx: AudioStreamPlayer
 var _bgm: AudioStreamPlayer
 var _bgm_tween: Tween
 var _sub_handle := -1
+var _stock_sub_handle := -1
+var _stock_warn_active := false   # 沿触发：任一链 days_left 进入警区 = true
 var _sfx_seq := 0
 var _warned := {}        # id -> true：素材缺失只警一次
 var _duck_warned := false
@@ -51,11 +53,16 @@ func _ready() -> void:
 	for p: AudioStreamPlayer in [_alarm_hunger, _alarm_thirst, _alarm_heartbeat]:
 		p.finished.connect(p.play)
 	bind_alarms()
+	# W2 块3：库存两级预警一次性音效（阈值同源 HudLoopPanel.warn_thresholds → survival.json）
+	_stock_sub_handle = State.subscribe(&"loop", _on_loop_changed)
 
 func _exit_tree() -> void:
 	if _sub_handle >= 0:
 		State.unsubscribe(_sub_handle)
 		_sub_handle = -1
+	if _stock_sub_handle >= 0:
+		State.unsubscribe(_stock_sub_handle)
+		_stock_sub_handle = -1
 
 func _make_player(db: float) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
@@ -78,6 +85,29 @@ func _on_player_changed(_source: StringName, _reason: String) -> void:
 		float(State.read("player.thirst")) < HudStyle.LOW_THIRST)
 	_set_looping(_alarm_heartbeat, "heartbeat",
 		float(State.read("player.stamina")) <= HudStyle.LOW_STAMINA)
+
+
+## W2 块3 库存两级预警：任一链 days_left 进入警区（<黄 或 <红）→ 一次性音效，
+## 走沿触发（false→true 那一刻播一次，不循环不重播）。阈值缺键 = 整体静默（D-017）。
+## LoopSystem 实例同 combat_system 模式防御式获取；缺位时 no-op，wiring 落位自动生效。
+func _on_loop_changed(_source: StringName, _reason: String) -> void:
+	var th := HudLoopPanel.warn_thresholds()
+	if th.is_empty():
+		return
+	var loop := get_node_or_null("/root/LoopSystem")
+	if loop == null or not loop.has_method("maintenance_urgency"):
+		return
+	var urg: Dictionary = loop.maintenance_urgency()
+	var any_warn := false
+	for res: String in urg.keys():
+		var dl: float = float(urg[res]["days_left"])
+		if dl >= 0.0 and not is_inf(dl) \
+				and (dl < float(th["r"]) or dl < float(th["y"])):
+			any_warn = true
+			break
+	if any_warn and not _stock_warn_active:
+		play_sfx(&"stock_warn")
+	_stock_warn_active = any_warn
 
 ## 沿触发：进入阈值侧开始循环、退出侧停止；已在播则不动（避免每帧重播）。
 ## _loop_active 与素材解耦：先翻标志再尝试播放——素材缺失时判据仍可红绿。
