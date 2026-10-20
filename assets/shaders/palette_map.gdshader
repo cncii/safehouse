@@ -34,18 +34,21 @@ uniform sampler2D palette_tex : filter_nearest, repeat_disable;
 // 0 = 完全不映射（原图），1 = 完全映射。做 A/B 对比图时用它。
 uniform float mix_strength : hint_range(0.0, 1.0) = 1.0;
 
-// 亮度低于此值的像素不参与映射 —— 保护 1px 深色描边（style_contract S4）不被抹掉。
+// 暗部统一色。亮度低于 outline_luma 的像素（实际就是 1px 深色描边）会被强制
+// 映射到 outline_color —— 契约 style_contract S4 规定描边色必须是 #222034。
 //
-// ⚠ 注意这里比的是 LINEAR 空间的亮度，不是你在取色器里看到的 sRGB 值。
-//   Godot 4 把 PNG 当作 sRGB 导入，texture() 采样返回的是 linear 值，两者差约 8 倍。
-//   实测三个锚点（linear luma）：
-//     描边 #222034  ≈ 0.017   ← 要保护它
-//     底板 #323c39  ≈ 0.041   ← 要让它参与映射
-//     纯黑 #000000  =  0.000
-//   取 0.02 落在描边与底板之间：描边被挡住，正常暗部照常映射。
-//   若误按 sRGB 直觉填 0.12，等于保护掉 sRGB 灰度 95 以下的所有像素，
-//   大片暗部会被排除在映射之外，统一色板的效果直接废掉一半。
-uniform float protect_luma : hint_range(0.0, 0.2) = 0.02;
+// ⚠ 为什么是「统一」而不是「保护原色」：
+//   初版设计成「保护描边、不参与映射」，实测断言直接证伪 —— 最近邻映射并不会抹掉描边，
+//   它只会把描边换成各自最接近的暗色。结果两张来源不同的素材各自保留深棕描边与冷蓝描边，
+//   并排时描边色不一致，等于没统一（实测越界色正是 (48,24,12) 与 (18,22,36)）。
+//
+// ⚠ 这里比的是 LINEAR 空间的亮度，不是取色器里的 sRGB 值。
+//   Godot 4 把 PNG 当 sRGB 导入，texture() 采样返回 linear，两者差约 8 倍。实测锚点：
+//     描边 #222034 ≈ 0.017 ／ 深棕描边 (48,24,12) ≈ 0.015 ／ 冷蓝描边 (18,22,36) ≈ 0.008
+//     底板 #323c39 ≈ 0.041 ／ 暖色衣服 (168,84,40) ≈ 0.172
+//   取 0.02 能抓住全部描边、放过正常填充。若按 sRGB 直觉填 0.12，会连大片暗部一起吞成描边色。
+uniform vec3 outline_color : source_color = vec3(0.133, 0.125, 0.204);
+uniform float outline_luma : hint_range(0.0, 0.2) = 0.02;
 
 // 半透明羽化边缘二值化阈值。素材自带的抗锯齿脏边在这一步被清掉，
 // 同时也是 style_contract §4.3「Alpha 只允许 0 或 255」的机械化执行。
@@ -71,10 +74,13 @@ void fragment() {
 		discard;
 	}
 
+	float l = luma(src.rgb);
 	vec3 mapped = src.rgb;
 
-	// ② 保护极暗像素（描边）不参与映射
-	if (luma(src.rgb) >= protect_luma) {
+	// ② 暗部统一：描边类像素直接压成契约规定的描边色 #222034
+	if (l < outline_luma) {
+		mapped = outline_color;
+	} else {
 		float best = 1e9;
 		for (int i = 0; i < PALETTE_MAX; i++) {
 			vec3 p = texture(palette_tex, palette_uv(i)).rgb;
