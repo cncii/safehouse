@@ -1,0 +1,60 @@
+[
+  {
+    "id": "V1-windup-frame",
+    "desc": "windup 8→7 帧（改 src 权威常量，秒值镜像不动）",
+    "file": "src/systems/time_system.gd",
+    "red": [
+      "M30 combat-chain: windup 8 ticks (ceil for reaction window)",
+      "F0-b: 5 combat constants /60 match baseline seconds"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 F0-b（QA 任务书 §4） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "V2-doc-seconds",
+    "desc": "文档基线秒值 0.1333333→0.12（time.json derived_check 与帧数脱钩）",
+    "file": "data/balance/time.json",
+    "red": [
+      "[FAIL] F0-b   帧数↔秒值一致"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 C28-b（= validate_data 的 F0-b 帧数↔秒值链） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "V3-hunger-rate",
+    "desc": "饥饿速率 5→6/GH（survival.json）",
+    "file": "data/balance/survival.json",
+    "red": [
+      "M2-c hunger_rate_per_gh == 5.0 (design anchor, pre-zero segment)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "QA 原预判应红 M2 —— M2 死钟用归零后 loss 速率，预计实际红的是 M2-c 锚点（M2 是否被牵红由实测回答，这正是变异报告的价值） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "V4-gh-frames",
+    "desc": "GH 帧数 4320→4300（src/core/game_loop.gd）",
+    "file": "src/core/game_loop.gd",
+    "red": [
+      "M30 time-chain: 1GH == 4320 frames",
+      "M30 time-chain: phase-A day == 15 GH (structural multiple)",
+      "M1: FRAMES_PER_GH / 60 == 72.0",
+      "P1-1: overtime delta == 9 GH (structural multiple)",
+      "P12b-1 kill-driven settled frames exact == 51840",
+      "P12b-2 idle-driven settled frames exact == 51840"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 M1/P1①（QA 任务书 §4）；连锁红= 同一事实族的锚点，非误伤 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "V5-breach-unsorted",
+    "desc": "破防候选不排序（loop_system.pick_breach_target 字典序+hash）",
+    "blocked": true,
+    "captured": false,
+    "no_collateral": false,
+    "note": "应红 M30/M19 类确定性断言 —— 本轮 blocked：loop_system.gd 编译失败（欠件退回包 B），变异体无法在坏脚本上区分红因，不得出假记录"
+  }
+]

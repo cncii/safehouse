@@ -1,5 +1,13 @@
-extends SceneTree
-## run_tests.gd — 无头测试入口（Godot 4.x：godot --headless -s tests/run_tests.gd）
+extends Node
+## run_tests.gd — 无头测试入口（**场景方式**：godot --headless res://tests/test_main.tscn）
+##
+## ⚠ 2026-10-20 运行形态修订（包 F·修订记录 #1，此前的 -s 方式作废）：
+##   旧入口 `godot --headless -s tests/run_tests.gd`（extends SceneTree）实测有两条结构性死穴：
+##   1. -s 主脚本编译早于 autoload 注册，凡被加载的脚本引用 autoload 标识符（State 等）
+##      即编译失败 → vitals_system.gd 连带挂掉 → M2/M2b/M3/M3b/M4 从未真跑过；
+##   2. -s 下 Node._ready() 不触发，依赖 _ready 初始化的对象全在"空表"状态下被断言。
+##   正解（战斗组 combat_probe 先例）：**场景方式**启动完整工程 → autoload 全就位 →
+##   所有系统可编译可执行。test_main.tscn 根节点即本脚本，_ready() 驱动全量断言。
 ##
 ## 三层空跑判负（QA v2.1）：
 ##   stage 层：断言总数 == 0 → 失败
@@ -33,9 +41,25 @@ var _groups: Dictionary = {}      # 分组前缀 -> {"p": n, "f": n}
 # ── 缺陷 A / B 的判据常量（冻结值，禁止随源码改动而改）──
 const SEED := 20261020
 
-# 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数（实测 74）。
+# ── W2 域判据（包 F 2026-10-20）：tests/test_*.gd 按文件分域，记账统一走本文件的 _t/_block ──
+const TimeTests = preload("res://tests/test_time.gd")
+const MapTests = preload("res://tests/test_map.gd")
+const VitalsTests = preload("res://tests/test_vitals.gd")
+const CombatTests = preload("res://tests/test_combat.gd")
+const TechTests = preload("res://tests/test_tech.gd")
+const EventTests = preload("res://tests/test_events.gd")
+const LoopTests = preload("res://tests/test_loop.gd")
+
+# 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
+# 修订 #1：vitals 段 8 条（M2 死钟/M2b/M3/M3b/M4×4）随场景方式修通，75 → 83。
+# 修订 #4：W2 域判据移植（tests/test_*.gd 按文件分域）83 → 120
+#          （time 12 + map 4 + vitals 3 + combat 4 + tech 5 + events 3 + loop blocked 5）。
+#          loop_system 编译失败修复后该域将产出 6 条，总数 121，仍 > 门槛，不误报。
+# 修订 #5：M2-c 前置段锚点 2 条（hunger 5 / thirst 7 per GH 设计定稿），120 → 122。
+# 修订 #6：变异 V4 实测 P1-1 formula 为恒真式（引用 vs 引用）→ 删除；phase-A 与
+#          overtime 改结构式（15G/9G）→ 122 → 121。
 # 任何"少跑了"的情况都必须在这里吵出来，而不是让 coverage 行照常打印。
-const MIN_ASSERTS := 75
+const MIN_ASSERTS := 121
 
 # A1 扫描用的针。刻意用拼接写出来：本文件自身也携带这些针（自测夹具里有），
 # 若写成整串，扫描 tests/ 时会自命中。tests/ 已排除，但拼接是双保险。
@@ -66,19 +90,27 @@ var EXPECT_CSV_KEYS: Array = [
 	"SETTINGS_TITLE",
 ]
 
-func _initialize() -> void:
+func _ready() -> void:
 	# ── 判定工具先自验（QA 硬纪律：跑不崩 ≠ 跑得对）──
 	_selfcheck_extractor()
 
 	# ── M30 金标准锚点（冻结参照：禁止读任何源/生成器，价值就在于不会自动改）──
+	# 修订 #2（2026-10-20）：combat-chain 原判据 `INCAP_TICKS % 60 == 0` 把
+	# "帧数 ÷ fps = 秒值"误写成"帧数能被 fps 整除"——216 % 60 = 36 恒假，首跑即红。
+	# 实现没错（216 帧 = 3.60s 精确，架构 1419/1518/1522 三处一致），判据自己写错，归测试组修。
+	# 修订 #6（变异 V4 实测驱动）：phase-A 原式 `== 15 * 4320`（右侧冻结字面量）在 GH 帧数
+	# 漂移（4320→4300）时测不出"phase-A 必须是 15 个 GH"的倍数关系断裂——变异测试证实
+	# 它不红（64800 独立 const vs 判据字面量 64800 恒等）。改为结构式 `15 * FRAMES_PER_GH`：
+	# 倍数关系由本条抓，绝对值由 1GH==4320 锚点抓，两者互补后漂移必红。
 	_t("M30 time-chain: 1GH == 4320 frames",
 		GameLoop.FRAMES_PER_GH == 4320)
-	_t("M30 time-chain: phase-A day == 64800 frames (15GH)",
-		GameLoop.FRAMES_PHASE_A_ACTIVE == 15 * 4320)
+	_t("M30 time-chain: phase-A day == 15 GH (structural multiple)",
+		GameLoop.FRAMES_PHASE_A_ACTIVE == 15 * GameLoop.FRAMES_PER_GH)
 	_t("M30 time-chain: full-run clock == 816480 frames (189GH)",
 		GameLoop.FRAMES_FULL_RUN == 7 * 64800 + 7 * 51840)
-	_t("M30 combat-chain: incap 216 ticks divisible (3.6s exact)",
-		TimeSystem.INCAP_TICKS == 216 and TimeSystem.INCAP_TICKS % 60 == 0)
+	_t("M30 combat-chain: incap 216 ticks == 3.60s exact",
+		TimeSystem.INCAP_TICKS == 216 \
+			and is_equal_approx(float(TimeSystem.INCAP_TICKS) / 60.0, 3.60))
 	_t("M30 combat-chain: windup 8 ticks (ceil for reaction window)",
 		TimeSystem.WINDUP_TICKS == 8)
 
@@ -90,13 +122,13 @@ func _initialize() -> void:
 	_t("M1: FRAMES_PER_GH / 60 == 72.0",
 		absf(float(GameLoop.FRAMES_PER_GH) / 60.0 - 72.0) < 1e-9)
 
-	# ── P1-1 结构判据：clock == 816480 + 38880k（整数全等，抓时间漂移类）──
-	var loop_frame_expect := 7 * GameLoop.FRAMES_PHASE_A_ACTIVE \
-		+ 7 * GameLoop.FRAMES_PHASE_B_DAYTIME
-	_t("P1-1: full-run frames formula == 816480",
-		GameLoop.FRAMES_FULL_RUN == loop_frame_expect)
-	_t("P1-1: overtime delta == 38880 (9GH)",
-		GameLoop.FRAMES_NIGHT_OVERTIME == 9 * 4320)
+	# ── P1-1 结构判据（修订 #6）──
+	# 原 formula 条（FRAMES_FULL_RUN == 7*PHASE_A + 7*PHASE_B，两侧都引用运行常量）
+	# 是恒真式——变异 V4 实测 GH 漂移下不红，期望值被被测常量自算（本项目第 4 例恒真坑），
+	# 删除；跨常量绝对锚点由 M30 full-run（816480 字面量）承担。
+	# overtime 改结构式：NIGHT_OVERTIME 必须恒等于 9 个 GH（k=2 上限与 9GH 加时基准的关系锚）。
+	_t("P1-1: overtime delta == 9 GH (structural multiple)",
+		GameLoop.FRAMES_NIGHT_OVERTIME == 9 * GameLoop.FRAMES_PER_GH)
 
 	# ── P28 分母锚点：科技树 24 节点（覆盖率 50–67% 的分母，不许再砍）──
 	_t("P28: tech_tree.json node count == 24",
@@ -107,13 +139,22 @@ func _initialize() -> void:
 		_count_no_unit_keys() <= 10)
 
 	# ── 包 F：缺陷 A（Localize tr→text 改名）／缺陷 B（splitmix64 常数）──
-	# 排在 vitals 之前：vitals 段目前自带一条运行时报错（见验收报告 §六），
-	# 那条报错会截断它所在的函数，后面的判据不能再排在它之后。
+	# 顺序保留：先 localize/rng 后 vitals。修订 #1 后运行形态为场景方式，
+	# 旧「vitals 段运行时报错会截断后续判据」的排序理由已消除（改注释不改顺序）。
 	_run_localize_asserts()
 	_run_rng_asserts()
 
 	# ── M2 / M2b / M3 / M3b / M4：vitals 归零致死链（包 B 提交，2026-10-19）──
 	_run_vitals_asserts()
+
+	# ── W2 域判据（包 F 2026-10-20，修订 #4）：按文件分域，每域一个 test_*.gd ──
+	TimeTests.run(self)
+	MapTests.run(self)
+	VitalsTests.run(self)
+	CombatTests.run(self)
+	TechTests.run(self)
+	EventTests.run(self)
+	LoopTests.run(self)
 
 	_finish()
 
@@ -163,7 +204,9 @@ func _run_localize_asserts() -> void:
 				"A4-1", "A5-1", "A5-2", "A5-3"],
 			"blocked: localization.gd parse error, instance carries no script")
 		return
-	root.add_child(L)
+	# 场景方式下 root 正在 _ready 建树，add_child 会报 "Parent node is busy"——
+	# 且这两个实例的全部断言同步完成，根本无需进树（-s 时代的进树理由已不存在）。
+	# 用完即 free（Node 非 RefCounted，不 free 会在退出时报 ObjectDB 泄漏）。
 	L._load()
 	# 空跑判负：表必须真的加载出来，否则下面所有值断言都在空表上跑（陷阱 2）
 	_t("A0-4 locale table loaded (size == 17, else all value asserts are void)",
@@ -261,7 +304,7 @@ func _run_localize_asserts() -> void:
 	# ── A5 自动加载运行时等价检查（tools 侧 D5 门禁的运行时补位）──
 	# 能抓：脚本编译失败 → autoload 退化成裸 Node → 全项目 Localize.* 调用全是死的。
 	# 用字符串取节点而不是 autoload 标识符：-s 场景下标识符解析顺序不稳定（见报告）。
-	var ln := root.get_node_or_null("Localize")
+	var ln := get_tree().root.get_node_or_null("Localize")
 	_t("A5-1 autoload node 'Localize' exists and carries its script",
 		ln != null and ln.get_script() != null)
 	if ln != null:
@@ -269,6 +312,7 @@ func _run_localize_asserts() -> void:
 		_t("A5-3 autoload exposes textf()", ln.has_method("textf"))
 	else:
 		_block(["A5-2", "A5-3"], "blocked: autoload node missing")
+	L.free()   # 未进树，直接 free 即销毁（防退出 ObjectDB leak 警告）
 
 # ══════════════════════════════════════════════════════════════════
 # 缺陷 B · splitmix64 常数不是设计值（3 常数 + 3 掩码全被截成 INT64_MAX）
@@ -301,9 +345,8 @@ func _run_rng_asserts() -> void:
 			"blocked: core RNG API missing -- rng_service.gd parse error")
 		return
 
-	# 显式 setup()：-s 下 _ready 不触发，_salts 是空的（见文件头陷阱 1）
+	# 显式 setup()：新实例不依赖 _ready（同 A 组 L），不进树（root 正在建树会报 busy）
 	var r = sc.new()
-	root.add_child(r)
 	r.setup(SEED)
 	# 空跑判负：盐表必须加载出来，否则 hash_at 全部按 salt=0 算，黄金向量无意义。
 	# 实测 size == 9 而不是 8：rng_salts.json 里的 "_comment" 键也被塞进了盐表
@@ -446,6 +489,7 @@ func _run_rng_asserts() -> void:
 			in_range = false
 			break
 	_t("B5-8 pick() always within [0, mod) over day 1..30, mod=7", in_range)
+	r.free()   # 未进树，直接 free 即销毁（防退出 ObjectDB leak 警告）
 
 # ══════════════════════════════════════════════════════════════════
 # 判定工具先自验（QA 硬纪律：跑不崩 ≠ 跑得对；构造不出夹具的工具只能当线索）
@@ -631,15 +675,19 @@ func _run_vitals_asserts() -> void:
 	# M2：饥饿归零 → 100±2s 死。能抓：death_seconds_after_zero 算式被改 / 速率被改
 	_t("M2: hunger-zero -> death in 100+-2s",
 		absf(VitalsSystem.death_seconds_after_zero(hp_max, loss_h) - 100.0) <= 2.0)
-	# M2b：跨零那一帧单帧份额 <= 1%/60 帧。能抓：hp_loss_per_tick 漏除 60 / 整块扣血
-	_t("M2b: hunger zero-cross frame share <= 1/60 pct",
-		VitalsSystem.zero_cross_frame_share_ok(loss_h))
+	# M2b（修订 #3）：单帧份额 == 设计定稿 1.0%/60 帧的精确分数。
+	# 原判据 zero_cross_frame_share_ok() 内部写死「份额 ≤ 1%/60」，把饥饿侧 1.0%/s 的
+	# 份额错当成通用上限——渴侧定稿 1.5%/s，对渴侧恒假（首跑即红，属"判据自己写错"）。
+	# 期望值直写设计锚点（1.0 / 1.5），不取被测函数自算值——防恒真式断言（本项目实测三连坑）。
+	# 能抓：漏除 60 / 整秒整块扣血 / 速率漂移 / 帧基 TICKS_PER_SEC 被改。
+	_t("M2b: hunger zero-cross frame share == 1.0%/60 (frame-granular drain)",
+		is_equal_approx(VitalsSystem.hp_loss_per_tick(loss_h), 1.0 / 60.0))
 	# M3：渴归零 -> 66.7s 死。能抓：death_seconds_after_zero 算式被改 / 速率被改
 	_t("M3: thirst-zero -> death in 66.7s",
 		absf(VitalsSystem.death_seconds_after_zero(hp_max, loss_t) - 66.6667) <= 0.5)
-	# M3b：同 M2b，渴侧
-	_t("M3b: thirst zero-cross frame share <= 1/60 pct",
-		VitalsSystem.zero_cross_frame_share_ok(loss_t))
+	# M3b（修订 #3）：同 M2b，渴侧定稿 1.5%/s → 单帧份额锚点 1.5/60
+	_t("M3b: thirst zero-cross frame share == 1.5%/60 (frame-granular drain)",
+		is_equal_approx(VitalsSystem.hp_loss_per_tick(loss_t), 1.5 / 60.0))
 	# M4 双路径：5.01->5.00 边界 与 4.99 一步跨过，都必须触发且只触发 1 次。
 	# 能抓：比较符 <= 被改成 < / 阈值被改 / 锁存失效
 	_t("M4: 5.01->5.00 boundary triggers once",
@@ -740,17 +788,28 @@ func _finish() -> void:
 	if _pass + _fail < MIN_ASSERTS:
 		print("  FATAL  EMPTY-RUN / TRUNCATION: ran %d asserts, expected >= %d"
 			% [_pass + _fail, MIN_ASSERTS])
-		quit(1)
+		get_tree().quit(1)
 	var keys := _groups.keys()
 	keys.sort()
 	for k in keys:
 		print("      group %-6s: %d pass / %d fail" % [k, _groups[k]["p"], _groups[k]["f"]])
 	# coverage_statement（架构 v1.23 定稿：脚本生成，禁止手写"全部通过"）
-	print("coverage: gate=%d | this report covers %d gate asserts; mutation-confirmed independent: 0 (not run)"
-		% [_pass + _fail, _pass + _fail])
+	# 变异确认数从 tools/mutation_report.json 读取（W3 起），缺失/损坏如实报 not run。
+	var mut_line := "mutation-confirmed independent: 0 (not run)"
+	var mf := FileAccess.open("res://tools/mutation_report.json", FileAccess.READ)
+	if mf != null:
+		var parsed: Variant = JSON.parse_string(mf.get_as_text())
+		if typeof(parsed) == TYPE_ARRAY:
+			var confirmed := 0
+			for m: Dictionary in parsed:
+				if bool(m.get("captured", false)) and bool(m.get("no_collateral", false)):
+					confirmed += 1
+			mut_line = "mutation-confirmed independent: %d (per tools/mutation_report.json)" % confirmed
+	print("coverage: gate=%d | this report covers %d gate asserts; %s"
+		% [_pass + _fail, _pass + _fail, mut_line])
 	if _fail > 0:
 		for f in _failures:
 			printerr("FAILED: " + f)
-		quit(1)
+		get_tree().quit(1)
 	else:
-		quit(0)
+		get_tree().quit(0)
