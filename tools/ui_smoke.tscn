@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://c1uismoke0d1"]
+
+[ext_resource type="Script" path="res://tools/ui_smoke.gd" id="1_smoke"]
+
+[node name="UiSmoke" type="Node"]
+script = ExtResource("1_smoke")

@@ -75,3 +75,12 @@
 |---|---|---|---|
 | **C-01** | `src/core/save_system.gd` `_build_payload()` | `"time"` 段是**硬编码常量**（`day:1, stage:"A", phase:"PREP", night_index:0, gh_elapsed_today:0.0, mode:"REALTIME"`），不取 `TimeSystem` 真实状态；且 **`save.schema.json` 要求的 `time.k_overtime` 整段缺失** | 存档里的时间永远是最新的第 1 天。读档后 day/阶段/时段全回到初始——**M7/M8/P7 三条判据直接失效**。逻辑组**没有**自行注册 `"time"` 段来覆盖：那会造成 core 与 systems 两个写入方，正是裁决里点名要避免的「分叉出第二个版本」 |
 | **C-02** | `data/schema/save.schema.json` | `time` 段没有 `k_overtime`，而 `save.schema.json` 是存档字段蓝图 | 同上；schema 与 core payload 两边都要补 |
+
+---
+
+## 表现组（包 D）登记（2026-10-20 · W4）
+
+| # | 被谁需要 | 缺什么 | 影响什么 | 谁能定 | 阻塞什么 |
+|---|---|---|---|---|---|
+| D-015 | `tools/ui_screenshot_runner.gd`（S5） | 27 组合的具体清单：三分辨率（工具默认 1280×720 / 1920×1080 / 2560×1440）、三模式（窗口 / 无边框 / 独占全屏）、DPI 100/125/150（以 content_scale_factor 模拟系统 DPI，CANVAS_ITEMS 口径） | 27 组合截图包口径与 S5 红绿结论（本轮按默认清单已跑：**0 越界 PASS**，见 `build/s5_report.md`） | 老板 | S5 交付定稿 |
+| D-016 | `src/systems/audio_system.gd` | 音频素材全套：`assets/audio/sfx/{alarm_hunger, alarm_thirst, heartbeat}.ogg`（循环）；溢出预警一次性音效（P20，触发源等 W2 库存两级预警接线）；任一 BGM（`assets/audio/bgm/`） | M 组"可听警报"判据代码侧已绿（ui_smoke 8 条断言），听感无法佐证；素材按 `<id>.ogg\|wav\|mp3` 约定路径落位后**零代码改动自动生效** | 老板 / 美术（素材包接入） | 音频判据的录屏佐证；试玩听感 |

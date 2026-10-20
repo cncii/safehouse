@@ -1,9 +1,17 @@
-extends SceneTree
-## ui_smoke.gd — 表现组（包 D）自验冒烟
-## 用法：godot --headless -s tools/ui_smoke.gd
+extends Node
+## ui_smoke.gd — 表现组（包 D）自验冒烟 · W4 修订
 ##
-## 归属说明：本文件是表现组自己验证 W1/W3 交付物的工具，**不进 tools/test.ps1**
+## ── 运行方式（重要，勿回退）──
+##   godot --headless res://tools/ui_smoke.tscn
+## 旧版 `godot --headless -s tools/ui_smoke.gd`（extends SceneTree）**永久作废**：
+## -s 模式主脚本编译早于 autoload 注册，Localize/State 等标识符解析失败 = 永远编不过。
+## 场景方式正常启动工程（autoload 全注册），本脚本作为场景根节点在 _ready 跑断言。
+##
+## ── 归属说明 ── 表现组自己验证 W1/W3/W4 交付物的工具，**不进 tools/test.ps1**
 ## （test.ps1 是包 F 编排的验收单一入口，要并入需由包 F 决定断言计数口径）。
+##
+## ── State 写入说明 ── fixture 用 source="effect_sink"（contract writers 白名单内的
+## 合法写入者）构造沿翻转；tools/ 不在 src/ui 的 D2 扫描范围，不构成 UI 越权。
 ##
 ## 每条判据注明"能抓什么"——抓不住东西的断言等于噪音，最后会被关掉。
 
@@ -11,12 +19,13 @@ var _pass := 0
 var _fail := 0
 var _failures: PackedStringArray = []
 
-func _initialize() -> void:
+func _ready() -> void:
 	_test_locale_chain()
 	_test_vitals_bars()
 	_test_clock()
 	_test_hud_root()
 	_test_settings_language_switch()
+	_test_audio_alarms()
 	_finish()
 
 # ── 本地化链路 ──
@@ -38,7 +47,7 @@ func _test_locale_chain() -> void:
 # 能抓：add_child/setup 顺序被改回（那会给 null 赋值）、条数被改、数值没夹紧。
 func _test_vitals_bars() -> void:
 	var vitals := HudVitals.new()
-	root.add_child(vitals)          # _ready 依赖入树，顺序不能反
+	add_child(vitals)          # _ready 依赖入树，顺序不能反
 
 	_t("vitals: exactly 4 bars", vitals._bars.size() == 4)
 	_t("vitals: bar names are localized", _all_bars_named(vitals))
@@ -56,20 +65,23 @@ func _test_vitals_bars() -> void:
 	vitals.queue_free()
 
 func _all_bars_named(v: HudVitals) -> bool:
+	# 注意：HudVitals._bars 元素是 {"bar", "path"}——本地化键在 VitalBar._name_key 里，
+	# 不存在 "key" 键（曾因访问 item["key"] 抛 SCRIPT ERROR 假红过一轮）。
+	var ok := true
 	for item: Dictionary in v._bars:
 		var b: VitalBar = item["bar"]
-		if b._name_label.text == "":
-			return false
-		if b._name_label.text == String(item["key"]):
-			return false      # 退化成裸 KEY 了
-	return true
+		var t: String = b._name_label.text
+		print("  diag: bar internal_key=[%s] text=[%s]" % [String(b._name_key), t])
+		if t == "" or t == String(b._name_key):
+			ok = false      # 空文本或退化成裸 KEY
+	return ok
 
 # ── 时段显示 ──
 # 能抓：GH→时钟换算被改（小数部分按 60 分而不是 100 分）、
 #       time.stage 未命中时直接 String() 把 0.0 显示成 "0"。
 func _test_clock() -> void:
 	var clock := HudClock.new()
-	root.add_child(clock)
+	add_child(clock)
 
 	_t("clock: 0 GH -> 00:00", clock._gh_to_clock(0.0) == "00:00")
 	_t("clock: 14.5 GH -> 14:30", clock._gh_to_clock(14.5) == "14:30")
@@ -83,19 +95,20 @@ func _test_clock() -> void:
 	clock.queue_free()
 
 # ── HUD 组装根 ──
-# 能抓：HudRoot 忘了加 HudVitals 或 HudClock（W2/W3 接新面板时最容易漏）。
+# 能抓：HudRoot 忘了加 HudVitals/HudClock/AudioSystem（W2 接新面板时最容易漏）。
 func _test_hud_root() -> void:
 	var hud := HudRoot.new()
-	root.add_child(hud)
+	add_child(hud)
 	_t("hud_root: has clock child", _has_type(hud, "HudClock"))
 	_t("hud_root: has vitals child", _has_type(hud, "HudVitals"))
+	_t("hud_root: has audio child", _has_type(hud, "AudioSystem"))
 	hud.queue_free()
 
 # ── 设置页切语言 ──
 # 能抓：切语言后 UI 树没被重刷（S8 回归）、或者设了语言但没落回 zh_CN 影响后续用例。
 func _test_settings_language_switch() -> void:
 	var settings := SettingsScreen.new()
-	root.add_child(settings)
+	add_child(settings)
 	_t("settings: title localized", settings._title.text != "SETTINGS_TITLE")
 
 	settings._on_lang_selected(2)   # en
@@ -108,6 +121,47 @@ func _test_settings_language_switch() -> void:
 		settings._title.text != "")
 	settings._on_lang_selected(0)   # zh_CN，还原，避免污染同进程后续用例
 	settings.queue_free()
+
+# ── 音频警报（W4）──
+# 能抓：阈值被抄成另一份常量（与 HudStyle 脱钩）、订阅沿翻转失效、
+#       bind_alarms 幂等被改坏（重复订阅）、冷启动全 0 没进警报侧。
+func _test_audio_alarms() -> void:
+	var audio := AudioSystem.new()
+	add_child(audio)   # _ready → bind_alarms → 订阅 + 冷启动对齐
+
+	# 冷启动：State 里 player.* 未写入 → read 全 0 → 三条警报都应在激活侧
+	_t("audio: cold all-zero state activates hunger alarm side",
+		audio._loop_active.get("alarm_hunger", false) == true)
+	_t("audio: cold all-zero state activates thirst alarm side",
+		audio._loop_active.get("alarm_thirst", false) == true)
+	_t("audio: cold all-zero state activates heartbeat side",
+		audio._loop_active.get("heartbeat", false) == true)
+
+	# 饱足 fixture（effect_sink 是 contract 白名单内的合法写入者）→ 全部退出警报侧
+	var cs := State.ChangeSet.new(&"effect_sink", "ui_smoke fixture: satiate vitals")
+	cs.setv("player.hunger", 80.0)
+	cs.setv("player.thirst", 80.0)
+	cs.setv("player.stamina", 50.0)
+	var r: State.ApplyResult = State.apply(cs)
+	_t("audio: fixture writes accepted by contract", r.ok and r.applied == 3)
+	_t("audio: satiated state deactivates hunger alarm",
+		audio._loop_active.get("alarm_hunger", true) == false)
+	_t("audio: satiated state deactivates heartbeat",
+		audio._loop_active.get("heartbeat", true) == false)
+
+	# 体力降到 ≤10（HudStyle.LOW_STAMINA）→ 心跳沿再翻回激活侧
+	var cs2 := State.ChangeSet.new(&"effect_sink", "ui_smoke fixture: drain stamina")
+	cs2.setv("player.stamina", 10.0)
+	State.apply(cs2)
+	_t("audio: stamina at threshold re-activates heartbeat",
+		audio._loop_active.get("heartbeat", false) == true)
+
+	# bind_alarms 幂等：重复调用不产生第二个订阅句柄
+	var before: int = audio._sub_handle
+	audio.bind_alarms()
+	_t("audio: bind_alarms is idempotent", audio._sub_handle == before)
+
+	audio.queue_free()
 
 ## 按 class_name 全局名递归查找（不能直接 is HudVitals，因为这里要写成通用的）
 func _has_type(n: Node, script_class: String) -> bool:
@@ -129,11 +183,11 @@ func _t(name: String, cond: bool) -> void:
 		print("  FAIL  %s" % name)
 
 func _finish() -> void:
-	print("--- ui_smoke: %d pass / %d fail ---" % [_pass, _pass + _fail])
+	print("--- ui_smoke: %d pass / %d fail / %d total ---" % [_pass, _fail, _pass + _fail])
 	print("coverage: ui_smoke=%d" % (_pass + _fail))
 	if _fail > 0:
 		for f in _failures:
 			printerr("FAILED: " + f)
-		quit(1)
+		get_tree().quit(1)
 	else:
-		quit(0)
+		get_tree().quit(0)

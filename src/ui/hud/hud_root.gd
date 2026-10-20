@@ -31,3 +31,6 @@ func _build() -> void:
 	panel.add_child(clock)
 	var vitals := HudVitals.new()
 	panel.add_child(vitals)
+
+	# W4：音频警报随 HUD 生命周期（纯消费者，只读订阅 State）
+	add_child(AudioSystem.new())

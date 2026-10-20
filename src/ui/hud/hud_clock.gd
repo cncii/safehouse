@@ -55,9 +55,13 @@ func _refresh() -> void:
 	_stage_label.text = _stage_text()
 
 func _gh_to_clock(gh: float) -> String:
+	# 先换算总分钟再取模：对小数部分先 floor 再 *60 会吃浮点精度
+	# （0.9×60 = 53.999… → floor 得 53，23.9 GH 显示成 23:53）。
+	# round 到总分钟后分列时/分，24 点自然折回 00:00。
 	var clamped := clampf(gh, 0.0, 24.0)
-	var hh := int(floorf(clamped)) % 24
-	var mm := int(floorf((clamped - floorf(clamped)) * 60.0))
+	var total_min := int(roundf(clamped * 60.0))
+	var hh := (total_min / 60) % 24
+	var mm := total_min % 60
 	return "%02d:%02d" % [hh, mm]
 
 ## time.stage 是 string 类型，但 State.read 未命中时返回 0.0——
