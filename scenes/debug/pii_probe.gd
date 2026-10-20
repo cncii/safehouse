@@ -61,6 +61,13 @@ func _test_scanner_detects_pii() -> void:
 	_t("s10(control): scanner detects hostname in known-bad sample", host == "" or hits.has("hostname"))
 	_t("s10(control): scanner detects username in known-bad sample", user == "" or hits.has("username"))
 	_t("s10(control): scanner detects abs path in known-bad sample", hits.has("abspath"))
+	# 修假阳性后仍必须能抓到**路径形态**的 AppData/Users（别把判据改弱了）
+	var path_sample := "leaked C:\\Users\\%s\\AppData\\Roaming\\SafeHouse\\save.sav" % user
+	_t("s10(control): scanner still detects Users\\AppData path form",
+		_scan_text(path_sample).has("abspath"))
+	# 但**裸词** AppData（正常文案）不该被判成 PII
+	_t("s10(control): bare word 'AppData' in prose is NOT a PII hit",
+		not _scan_text("save path writable (%APPDATA%\\SafeHouse)").has("abspath"))
 	_t("s10(control): scanner detects uuid/mac pattern in known-bad sample",
 		_scan_text("id=550e8400-e29b-41d4-a716-446655440000").has("uuid"))
 
@@ -79,15 +86,34 @@ func _test_save_no_pii() -> void:
 			printerr("  PII in %s: %s" % [path, str(hits)])
 
 ## 日志：明文，直接扫
+##
+## ⚠ 两个必须处理的坑（实测）：
+##   1. **不能扫"当前活动日志"**（godot.log）：探针运行时它正在被写入，
+##      且它含**探针自己的输出**——而探针的断言文字里有 `C:\Users\CQY\save.sav`
+##      这种样本（用于验证 contains_pii），会被自己扫成 PII → 自污染假红。
+##      故排除活动日志（只扫已滚动的历史日志）。
+##   2. 扫到的内容必须在**扫描时刻**冻结，故先整份读入内存再扫。
 func _test_logs_no_pii() -> void:
 	var logs := _collect_files("user://logs")
 	if logs.is_empty():
 		return   # 无日志目录：本组判"未生效"，不计入分子（不打 PASS 充数）
 	for f: String in logs:
+		# 排除当前活动日志（正在写入 + 含本探针自身输出）
+		if f.get_file() == "godot.log":
+			continue
 		var text := _read_text_decompressed(f)
 		if text.is_empty():
 			continue
-		var hits := _scan_text(text)
+		# 过滤掉**探针自己的输出行**（含 PII 样本的断言文字）——它们不是产品泄漏。
+		# 判据：探针输出以 "  PASS  s10" / "  FAIL  s10" / "PII in " 开头。
+		var lines := text.split("\n")
+		var filtered: Array = []
+		for ln: String in lines:
+			if ln.begins_with("  PASS  s10") or ln.begins_with("  FAIL  s10") \
+					or ln.begins_with("  PII in ") or ln.begins_with("--- pii_probe"):
+				continue
+			filtered.append(ln)
+		var hits := _scan_text("\n".join(filtered))
 		_t("s10: %s PII hits == 0 (got %d)" % [f.get_file(), hits.size()], hits.is_empty())
 		if not hits.is_empty():
 			printerr("  PII in %s: %s" % [f.get_file(), str(hits)])
@@ -114,17 +140,23 @@ func _test_combat_write_paths_clean() -> void:
 ## Logger 的 PII 守卫现状（如实记录，不判红——core 层不属包 C）
 ## 实测：logger.gd 的 contains_pii() 定义了但 log() 从不调用它 → 运行期不拦截。
 ## 修它要改 src/core/logger.gd（包 B 文件），故本组只报不改。
+##
+## ⚠ 踩坑（已修）：最初这里用 lg.log(..., "leak C:\\Users\\CQY\\secret") 故意写 PII，
+##   结果 Logger 真的没拦 → **PII 被写进了 godot.log** → 后续扫描把自己的测试日志
+##   判成泄漏（自污染）。故改为：**只测 contains_pii() 的判定能力，不真写日志**，
+##   避免探针自己制造待检测物。
 func _test_logger_guard_status() -> void:
 	var lg = _Logger.new()
 	add_child(lg)
 	_t("s10: logger.contains_pii detects abs path",
 		bool(lg.contains_pii("C:\\Users\\CQY\\save.sav")))
-	_t("s10: logger.contains_pii detects AppData",
+	_t("s10: logger.contains_pii detects AppData path",
 		bool(lg.contains_pii("AppData/Roaming/SafeHouse")))
 	_t("s10: logger.contains_pii clean on state path",
 		not bool(lg.contains_pii("player.hp")))
-	# 实证：log() 不会拦截 PII reason（现状缺陷，交包 B）
-	lg.log(&"pii_probe", &"probe", "", null, "leak C:\\Users\\CQY\\secret")
+	# 实证缺口：log() 不会拦截 PII reason —— 用**干净**文本验证它确实写进了日志路径，
+	# 但不写 PII 内容（避免自污染，见上）。
+	lg.log(&"pii_probe", &"guard_check", "player.hp", 100.0, "normal reason")
 	_t("s10(NOTE): logger.log does NOT block PII reason today -> known gap owned by core",
 		true)
 	lg.queue_free()
@@ -139,7 +171,13 @@ func _scan_text(text: String) -> Array:
 		hits.append("hostname")
 	if user != "" and text.contains(user):
 		hits.append("username")
-	for token: String in ["Users\\", "C:\\", "AppData", "\\Device", "steam_", "STEAM_"]:
+	# 绝对路径形态匹配（不是裸 token）——
+	# ⚠ 踩坑：最初把 "AppData" 当裸 token 扫，结果把**正常文案**
+	#   "s9: save path writable (%APPDATA%\SafeHouse)" 判成 PII → 假阳性。
+	#   判据变噪音就会被关掉，关掉之后它防的事就没人防了。
+	#   故只匹配**路径形态**：盘符前缀 / 路径分隔符包裹的目录名。
+	for token: String in ["Users\\", "C:\\", "\\AppData\\", "/AppData/",
+			"\\Device\\", "\\steam_", "\\STEAM_", "steam_apps", "\\Documents\\"]:
 		if text.contains(token):
 			hits.append("abspath")
 			break
