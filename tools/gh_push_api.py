@@ -48,9 +48,10 @@ BLOB_LIMIT = 95 * 1024 * 1024  # GitHub blob 上限 100MB，留余量
 
 def make_api(repo, token, proxy):
     base = "https://api.github.com"
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({"http": proxy, "https": proxy} or None)
-    )
+    # proxy 为空串时必须传 None（禁用代理处理器），否则 ProxyHandler({"http": ""})
+    # 会产生空代理条目 → urlopen 报 "no host given"（2026-10-20 W2 推送实测踩坑）
+    handler = ({"http": proxy, "https": proxy} if proxy else None)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler(handler))
 
     def api(method, path, payload=None, allow_404=False):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
