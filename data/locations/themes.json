@@ -1,0 +1,33 @@
+{
+  "$schema_note": "9 类地点的布局参数 = 3 套 tile 主题 × 参数差异（架构 R1 关键缓解：新增地点 ≈ 改 20 行 JSON，不手搓场景）。",
+  "$provisional": "全部 layout_* 数值为 PROVISIONAL——结构可用、数值待设计侧定稿（缺数 D-004/D-005，见 data/UNDEFINED.md）。",
+  "_comment_m28b": "本文件刻意用单文件嵌套（而不是 themes/*.json 每主题一文件）：M28-b 判据是「同名叶子键只能出现在 1 个文件」，拆多文件会让 room_count 这类同名不同值的键被误判为重复定义。",
+
+  "commercial": {
+    "tile_theme": "TILE_COMMERCIAL",
+    "room_topology": "grid",
+    "loot_kind_pool": ["food", "water", "electronics", "clothing", "medicine"],
+    "layout_room_count": 5,
+    "layout_corridor_count": 3,
+    "layout_loot_point_count": 12,
+    "layout_danger_base_ratio": 0.35
+  },
+  "residential": {
+    "tile_theme": "TILE_RESIDENTIAL",
+    "room_topology": "cluster",
+    "loot_kind_pool": ["food", "water", "misc", "seed", "survivor"],
+    "layout_room_count": 4,
+    "layout_corridor_count": 2,
+    "layout_loot_point_count": 9,
+    "layout_danger_base_ratio": 0.30
+  },
+  "industrial": {
+    "tile_theme": "TILE_INDUSTRIAL",
+    "room_topology": "corridor",
+    "loot_kind_pool": ["fuel", "parts", "ammo", "weapon", "biological"],
+    "layout_room_count": 6,
+    "layout_corridor_count": 5,
+    "layout_loot_point_count": 14,
+    "layout_danger_base_ratio": 0.55
+  }
+}

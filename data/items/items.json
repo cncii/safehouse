@@ -1,0 +1,21 @@
+{
+  "$schema_note": "物品定义。loot_tables.json 的 item_id 必须能在本文件解析到，否则掉落是悬空引用。",
+  "$provisional": "本文件只登记 id / name_key / tags —— 这些是结构事实，不是数值。weight_units / durability_units / effect 引用全部缺数（D-007，见 data/UNDEFINED.md），在设计侧定稿前不写进来：宁可缺键，不写假数。",
+
+  "items": {
+    "item_none":         { "name_key": "ITEM_NONE",         "tags": ["placeholder"] },
+    "item_food_can":     { "name_key": "ITEM_FOOD_CAN",     "tags": ["food", "consumable"] },
+    "item_water_bottle": { "name_key": "ITEM_WATER_BOTTLE", "tags": ["water", "consumable"] },
+    "item_med_gauze":    { "name_key": "ITEM_MED_GAUZE",    "tags": ["medical", "consumable"] },
+    "item_energy_bar":   { "name_key": "ITEM_ENERGY_BAR",   "tags": ["food", "consumable", "stamina"] },
+    "item_parts":        { "name_key": "ITEM_PARTS",        "tags": ["material", "tech"] },
+    "item_electronics":  { "name_key": "ITEM_ELECTRONICS",  "tags": ["material", "tech", "rare"] },
+    "item_biological":   { "name_key": "ITEM_BIOLOGICAL",   "tags": ["material", "loop", "rare"] },
+    "item_clothing":     { "name_key": "ITEM_CLOTHING",     "tags": ["gear"] },
+    "item_misc_scrap":   { "name_key": "ITEM_MISC_SCRAP",   "tags": ["material"] },
+    "item_seed":         { "name_key": "ITEM_SEED",         "tags": ["material", "loop"] },
+    "item_fuel_can":     { "name_key": "ITEM_FUEL_CAN",     "tags": ["fuel", "consumable"] },
+    "item_ammo_box":     { "name_key": "ITEM_AMMO_BOX",     "tags": ["ammo", "rare"] },
+    "item_weapon_pipe":  { "name_key": "ITEM_WEAPON_PIPE",  "tags": ["weapon", "melee"] }
+  }
+}

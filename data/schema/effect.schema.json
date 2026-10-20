@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "_comment": "事件效果封闭集（架构 §4.5）。additionalProperties:false —— 出现 script/expr/call/on_fire 字段启动即失败。没有第 5 类能力，也不许有。",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["kind"],
+    "properties": {
+      "kind": { "enum": ["num", "flag", "time", "spawn"] },
+      "path": { "type": "string", "description": "kind=num：必须在 state_contract.json 已注册" },
+      "verb": { "enum": ["add", "set", "clamp"], "description": "kind=num" },
+      "value": { "description": "kind=num/flag；num 用数值，flag 用 bool" },
+      "scope": { "enum": ["location", "facility", "ui_hints", "meta"], "description": "kind=flag" },
+      "id": { "type": "string", "description": "kind=flag/spawn 的目标 id" },
+      "field": { "type": "string", "description": "kind=flag 的开关字段" },
+      "target": { "enum": ["SHIFT_END", "ADD_GH", "FORCE_SLEEP"], "description": "kind=time" },
+      "table_id": { "type": "string", "description": "kind=spawn：只能引用 spawn_tables.json 里的 id" },
+      "count": { "type": "integer", "minimum": 0, "description": "kind=spawn：上限语义" },
+      "anchor": { "enum": ["front_door", "back_window", "basement_door", "roof"], "description": "kind=spawn：4 入口枚举" }
+    },
+    "allOf": [
+      {
+        "if": { "properties": { "kind": { "const": "num" } } },
+        "then": { "required": ["path", "verb", "value"] }
+      },
+      {
+        "if": { "properties": { "kind": { "const": "flag" } } },
+        "then": { "required": ["scope", "id", "field", "value"] }
+      },
+      {
+        "if": { "properties": { "kind": { "const": "time" } } },
+        "then": { "required": ["target"] }
+      },
+      {
+        "if": { "properties": { "kind": { "const": "spawn" } } },
+        "then": { "required": ["table_id", "count", "anchor"] }
+      }
+    ]
+  }
+}

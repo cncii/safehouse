@@ -1,0 +1,17 @@
+{
+  "_comment": "目录级域白名单（架构 v1.14 三段式键名 <域>_<量>_<单位>）。validate_data.py 两步校验：①正则 ②域段必须在本表。新增域必须先由设计侧注册——否则白名单退化成'谁写谁加'。",
+  "domains": {
+    "time": ["gh", "ticks", "frames", "sec"],
+    "player": ["hp", "stamina", "hunger", "thirst", "count"],
+    "combat": ["ticks", "hp", "dps", "ratio"],
+    "loop": ["milli", "per_gh", "per_day", "gh", "days"],
+    "facility": ["level", "hp", "milli", "parts", "gh"],
+    "tech": ["gh", "parts", "electronics", "samples"],
+    "inventory": ["units", "parts", "count", "cap"],
+    "wave": ["count", "hp", "night"],
+    "event": ["day", "gh"],
+    "ui": ["hints", "flags"]
+  },
+  "_note_no_unit_keys": "结构型参数（night_index/batch/level/seq）不参与算术，免后缀但必须在 no_unit_keys.json 白名单内；白名单 >10 条 = 规则失效，直接 exit 1（自毁条款）。",
+  "_note_ordering": "同表取数先写含域限定名的表达式（第 0 层纪律）：round(front_door_walker_count × 0.2)。写不出来 = 这个格子没定义清楚。"
+}

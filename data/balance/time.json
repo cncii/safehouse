@@ -1,0 +1,41 @@
+{
+  "$schema_note": "时间基准。权威值是帧数；秒值由脚本导出，禁止手写（C28）。",
+  "tick_hz_count": 60,
+  "frames_per_gh_count": 4320,
+  "seconds_per_gh_sec": 72,
+
+  "stage_a_active_gh": 15,
+  "stage_a_night_gh": 9,
+  "stage_b_day_gh": 12,
+  "night_overtime_gh": 9,
+
+  "days_stage_a_count": 7,
+  "nights_stage_b_count": 7,
+
+  "prep_start_gh": 5,
+  "outing_start_gh": 8,
+  "outing_end_gh": 18,
+  "curfew_gh": 20,
+  "stage_b_dawn_gh": 6,
+  "stage_b_morning_gh": 6,
+
+  "transition_night_duration_sec": 120,
+  "transition_night_is_playable": false,
+
+  "combat_frames": {
+    "iframes_ticks": 9,
+    "windup_ticks": 8,
+    "recovery_ticks": 6,
+    "hitstun_ticks": 12,
+    "incap_ticks": 216
+  },
+
+  "derived_check": {
+    "note": "F0-b：以下秒值必须等于 帧数/60，由 gen_baseline.py 生成，人工不得修改",
+    "iframes_sec": 0.15,
+    "windup_sec": 0.1333333,
+    "recovery_sec": 0.1,
+    "hitstun_sec": 0.2,
+    "incap_sec": 3.6
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema_note": "科技树 24 节点 + 设施升级前置关系 + 阶段B必需品依赖。关系必须落盘，否则只能靠人偶然想到。",
+  "total_nodes_count": 24,
+  "layers": {
+    "L1": ["unlock_water_basic", "unlock_cook", "unlock_bandage", "unlock_barricade", "unlock_torch"],
+    "L2": ["unlock_spike_trap", "unlock_generator", "unlock_storage_up", "unlock_reinforce_door",
+           "unlock_workbench", "unlock_rooftop", "unlock_dismantle_bench"],
+    "L3": ["unlock_rain_collector", "unlock_water_filter", "unlock_mushroom_bed", "unlock_filter_core",
+           "unlock_power_dist", "unlock_auto_ration", "unlock_medical_bench", "unlock_sample_culture"],
+    "L4": ["unlock_signal_tower", "unlock_serum", "unlock_auto_turret", "unlock_power_expand"]
+  },
+  "nodes": {
+    "unlock_water_basic":      {"layer": "L1", "cost_parts": 2, "research_gh": 2, "prereq_all_of": [], "prereq_any_of": []},
+    "unlock_cook":             {"layer": "L1", "cost_parts": 3, "research_gh": 3, "prereq_all_of": [], "prereq_any_of": []},
+    "unlock_bandage":          {"layer": "L1", "cost_parts": 2, "research_gh": 2, "prereq_all_of": [], "prereq_any_of": []},
+    "unlock_barricade":        {"layer": "L1", "cost_parts": 2, "research_gh": 2, "prereq_all_of": [], "prereq_any_of": []},
+    "unlock_torch":            {"layer": "L1", "cost_parts": 3, "research_gh": 2, "prereq_all_of": [], "prereq_any_of": []},
+
+    "unlock_spike_trap":       {"layer": "L2", "cost_parts": 3, "research_gh": 4, "prereq_all_of": ["unlock_barricade"], "prereq_any_of": []},
+    "unlock_generator":        {"layer": "L2", "cost_parts": 7, "research_gh": 6, "prereq_all_of": ["unlock_torch"], "prereq_any_of": []},
+    "unlock_storage_up":       {"layer": "L2", "cost_parts": 4, "research_gh": 4, "prereq_all_of": [], "prereq_any_of": []},
+    "unlock_reinforce_door":   {"layer": "L2", "cost_parts": 6, "research_gh": 6, "prereq_all_of": ["unlock_barricade"], "prereq_any_of": []},
+    "unlock_workbench":        {"layer": "L2", "cost_parts": 8, "research_gh": 8, "prereq_all_of": ["unlock_cook"], "prereq_any_of": []},
+    "unlock_rooftop":          {"layer": "L2", "cost_parts": 6, "research_gh": 6, "prereq_all_of": ["unlock_reinforce_door"], "prereq_any_of": []},
+    "unlock_dismantle_bench":  {"layer": "L2", "cost_parts": 3, "research_gh": 3, "prereq_all_of": [], "prereq_any_of": ["unlock_water_basic", "unlock_cook", "unlock_bandage", "unlock_barricade", "unlock_torch"]},
+
+    "unlock_rain_collector":   {"layer": "L3", "cost_parts": 5, "research_gh": 6, "prereq_all_of": ["unlock_water_basic"], "prereq_any_of": []},
+    "unlock_water_filter":     {"layer": "L3", "cost_parts": 6, "research_gh": 7, "prereq_all_of": ["unlock_rain_collector"], "prereq_any_of": []},
+    "unlock_mushroom_bed":     {"layer": "L3", "cost_parts": 5, "research_gh": 6, "prereq_all_of": ["unlock_cook"], "prereq_any_of": []},
+    "unlock_filter_core":      {"layer": "L3", "cost_parts": 4, "research_gh": 5, "prereq_all_of": ["unlock_water_filter"], "prereq_any_of": []},
+    "unlock_power_dist":       {"layer": "L3", "cost_parts": 6, "research_gh": 6, "prereq_all_of": ["unlock_generator"], "prereq_any_of": []},
+    "unlock_auto_ration":      {"layer": "L3", "cost_parts": 4, "research_gh": 4, "prereq_all_of": ["unlock_storage_up"], "prereq_any_of": []},
+    "unlock_medical_bench":    {"layer": "L3", "cost_parts": 6, "research_gh": 6, "prereq_all_of": ["unlock_bandage"], "prereq_any_of": []},
+    "unlock_sample_culture":   {"layer": "L3", "cost_parts": 7, "research_gh": 7, "prereq_all_of": ["unlock_mushroom_bed"], "prereq_any_of": []},
+
+    "unlock_signal_tower":     {"layer": "L4", "cost_parts": 12, "research_gh": 12, "prereq_all_of": ["unlock_power_dist"], "prereq_any_of": ["unlock_water_filter", "unlock_mushroom_bed", "unlock_sample_culture"]},
+    "unlock_serum":            {"layer": "L4", "cost_parts": 14, "research_gh": 14, "prereq_all_of": ["unlock_medical_bench"], "prereq_any_of": ["unlock_sample_culture", "unlock_water_filter", "unlock_mushroom_bed"]},
+    "unlock_auto_turret":      {"layer": "L4", "cost_parts": 10, "research_gh": 10, "prereq_all_of": ["unlock_power_dist"], "prereq_any_of": []},
+    "unlock_power_expand":     {"layer": "L4", "cost_parts": 9, "research_gh": 9, "prereq_all_of": ["unlock_power_dist"], "prereq_any_of": []}
+  },
+
+  "facility_upgrade_gates": {
+    "filter_water_l2": "unlock_workbench",
+    "filter_water_l3": "unlock_workbench",
+    "mushroom_bed_l2": "unlock_workbench",
+    "mushroom_bed_l3": "unlock_workbench"
+  },
+
+  "necessities": {
+    "parts":  ["unlock_dismantle_bench"],
+    "power":  ["unlock_generator"],
+    "water":  ["unlock_rain_collector", "unlock_water_filter"],
+    "food":   ["unlock_mushroom_bed"],
+    "sample": ["unlock_sample_culture"]
+  }
+}

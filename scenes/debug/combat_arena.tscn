@@ -1,0 +1,14 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/debug/combat_arena.gd" id="1_arena"]
+[ext_resource type="Script" path="res://src/systems/combat_system.gd" id="2_combat"]
+[ext_resource type="Script" path="res://src/systems/spawn_service.gd" id="3_spawn"]
+
+[node name="CombatArena" type="Node2D"]
+script = ExtResource("1_arena")
+
+[node name="CombatSystem" type="Node" parent="."]
+script = ExtResource("2_combat")
+
+[node name="SpawnService" type="Node" parent="."]
+script = ExtResource("3_spawn")

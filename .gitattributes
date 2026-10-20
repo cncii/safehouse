@@ -1,0 +1,12 @@
+# 统一入库行尾为 LF，检出行为由各端 git 自行处理
+* text=auto
+
+# 明确的二进制资源（防止误规范化）
+*.png binary
+*.jpg binary
+*.webp binary
+*.ogg binary
+*.wav binary
+*.ttf binary
+*.otf binary
+*.zip binary

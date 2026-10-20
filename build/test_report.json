@@ -1,0 +1,37 @@
+﻿{
+    "generated_at":  "2026-10-20T12:03:20.8626646+08:00",
+    "stages":  [
+                   {
+                       "ok":  true,
+                       "name":  "1 数据校验",
+                       "asserts":  6
+                   },
+                   {
+                       "ok":  true,
+                       "name":  "2 依赖扫描",
+                       "asserts":  4
+                   },
+                   {
+                       "ok":  false,
+                       "name":  "2b 编译普查",
+                       "asserts":  1
+                   },
+                   {
+                       "ok":  true,
+                       "name":  "3 i18n 扫描",
+                       "asserts":  1
+                   },
+                   {
+                       "ok":  false,
+                       "name":  "4 无头单测",
+                       "asserts":  0,
+                       "note":  "not_effective: godot missing"
+                   },
+                   {
+                       "ok":  true,
+                       "name":  "5 资产扫描",
+                       "asserts":  4
+                   }
+               ],
+    "total_asserts":  15
+}

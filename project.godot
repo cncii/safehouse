@@ -1,0 +1,79 @@
+; Engine configuration file.
+; 《末日：我有一座安全屋》 Godot 4.3 工程配置
+; 架构纪律见 docs/architecture.md；分包边界见 docs/模块分包说明.md
+
+config_version=5
+
+[application]
+
+config/name="SafeHouse"
+config/description="末日：我有一座安全屋 — 2D 像素俯视角末日生存"
+config/version="0.1.0"
+run/main_scene="res://scenes/boot/boot.tscn"
+config/features=PackedStringArray("4.3")
+config/custom_user_dir_name="SafeHouse"
+config/use_custom_user_dir=true
+config/icon="res://icon.svg"
+
+[audio]
+
+buses/default_bus_layout=""
+
+[autoload]
+
+; ── L1 基础层（无游戏规则，先注册） ──
+Logger="*res://src/core/logger.gd"
+Rng="*res://src/core/rng_service.gd"
+Localize="*res://src/core/localization.gd"
+PerfGovernor="*res://src/core/perf_governor.gd"
+; ── L2 状态层 ──
+State="*res://src/core/state_store.gd"
+; ── L1 时间驱动者（依赖 State，晚于 State 注册） ──
+GameLoop="*res://src/core/game_loop.gd"
+Save="*res://src/core/save_system.gd"
+ResolveOrder="*res://src/core/resolve_order.gd"
+
+[display]
+
+; 内部分辨率固定 640×360（性能预算 #1，门禁项，改动需架构审批）
+window/size/viewport_width=640
+window/size/viewport_height=360
+; 窗口默认 2× 整数倍
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="viewport"
+window/stretch/scale_mode="integer"
+window/stretch/aspect="keep"
+
+[input]
+
+; ── 固定操作集（架构 §6.1：不做 Steam Input API，用内置 InputMap） ──
+move_up={"deadzone": 0.2, "events": [Object(InputEventKey,"physical_keycode":87)]}
+move_down={"deadzone": 0.2, "events": [Object(InputEventKey,"physical_keycode":83)]}
+move_left={"deadzone": 0.2, "events": [Object(InputEventKey,"physical_keycode":65)]}
+move_right={"deadzone": 0.2, "events": [Object(InputEventKey,"physical_keycode":68)]}
+attack={"deadzone": 0.5, "events": [Object(InputEventKey,"physical_keycode":74)]}
+dodge={"deadzone": 0.5, "events": [Object(InputEventKey,"physical_keycode":75)]}
+interact={"deadzone": 0.5, "events": [Object(InputEventKey,"physical_keycode":69)]}
+inventory={"deadzone": 0.5, "events": [Object(InputEventKey,"physical_keycode":73)]}
+tech_tree={"deadzone": 0.5, "events": [Object(InputEventKey,"physical_keycode":84)]}
+pause={"deadzone": 0.5, "events": [Object(InputEventKey,"physical_keycode":27)]}
+
+[physics]
+
+; F0 时基门禁：这三个值不得改动（改动会架空全部帧数断言）
+common/physics_ticks_per_second=60
+common/max_physics_steps_per_frame=8
+3d/default_gravity=0.0
+
+[rendering]
+
+; 像素风：纹理最近邻过滤
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+
+[time]
+
+; 禁止任何系统用 time_scale 做事（F0 断言 time_scale == 1.0）
+; 不配置 = 默认 1.0

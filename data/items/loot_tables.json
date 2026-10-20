@@ -1,0 +1,31 @@
+{
+  "$schema_note": "按地点主题的掉落表。loot_point() 用位置无关 hash 直接命中本表条目——不是被顺序消费的流。",
+  "$provisional": "全部 entry_* 数值为 PROVISIONAL——出率权重/数量区间待设计侧定稿（缺数 D-006，见 data/UNDEFINED.md）。item_id 取自 items.json 的已注册 id。",
+  "_comment_p16": "P16 顺序无关性由生成方式保证：命中哪一条只取决于 hash_at(LOOT, day, [loc_id, point_id])，与开箱先后、已开箱次数、真实时间全无关。",
+
+  "commercial": [
+    { "item_id": "item_food_can",       "entry_weight_ratio": 3.0, "entry_min_count": 1, "entry_max_count": 3 },
+    { "item_id": "item_water_bottle",   "entry_weight_ratio": 3.0, "entry_min_count": 1, "entry_max_count": 3 },
+    { "item_id": "item_electronics",    "entry_weight_ratio": 1.2, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_clothing",       "entry_weight_ratio": 1.5, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_med_gauze",      "entry_weight_ratio": 1.0, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_parts",          "entry_weight_ratio": 1.8, "entry_min_count": 1, "entry_max_count": 4 },
+    { "item_id": "item_none",           "entry_weight_ratio": 2.5, "entry_min_count": 0, "entry_max_count": 0 }
+  ],
+  "residential": [
+    { "item_id": "item_food_can",       "entry_weight_ratio": 2.4, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_water_bottle",   "entry_weight_ratio": 2.4, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_misc_scrap",     "entry_weight_ratio": 2.0, "entry_min_count": 1, "entry_max_count": 3 },
+    { "item_id": "item_seed",           "entry_weight_ratio": 1.0, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_parts",          "entry_weight_ratio": 1.6, "entry_min_count": 1, "entry_max_count": 3 },
+    { "item_id": "item_none",           "entry_weight_ratio": 3.0, "entry_min_count": 0, "entry_max_count": 0 }
+  ],
+  "industrial": [
+    { "item_id": "item_fuel_can",       "entry_weight_ratio": 2.0, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_parts",          "entry_weight_ratio": 2.6, "entry_min_count": 1, "entry_max_count": 5 },
+    { "item_id": "item_ammo_box",       "entry_weight_ratio": 1.2, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_weapon_pipe",    "entry_weight_ratio": 0.6, "entry_min_count": 1, "entry_max_count": 1 },
+    { "item_id": "item_biological",     "entry_weight_ratio": 0.8, "entry_min_count": 1, "entry_max_count": 2 },
+    { "item_id": "item_none",           "entry_weight_ratio": 3.2, "entry_min_count": 0, "entry_max_count": 0 }
+  ]
+}

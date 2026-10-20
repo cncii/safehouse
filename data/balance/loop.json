@@ -1,0 +1,47 @@
+{
+  "$schema_note": "循环系统产出与库存。产线为整数定点（milli），此处以 units 表达，1 unit = 1000 milli。",
+  "mushroom_food_rate_l1_per_gh": 0.12,
+  "mushroom_food_rate_l2_per_gh": 0.19,
+  "mushroom_food_rate_l3_per_gh": 0.22,
+  "filter_water_rate_l1_per_gh": 0.15,
+  "filter_water_rate_l2_per_gh": 0.20,
+  "filter_water_rate_l3_per_gh": 0.24,
+
+  "facility_upgrade_cost_parts": 5,
+  "facility_upgrade_gh": 0,
+  "facility_max_level_count": 3,
+
+  "water_store_cap_units": 15,
+  "food_store_cap_units": 12,
+  "sample_store_cap_units": 10,
+  "overflow_cap_ratio_pct": 50,
+  "overflow_efficiency_pct": 50,
+
+  "sample_culture_rate_per_day": 0.5,
+  "mushroom_sample_cost_per_day": 0.5,
+  "medical_kit_rate_per_day": 0.4,
+
+  "generator_fuel_duration_gh": 8,
+  "filter_dirty_output_mult_pct": 50,
+  "power_off_output_mult_pct": 50,
+  "maintenance_fail_days_count": 3,
+
+  "carry_in_food_min_units": 6,
+  "carry_in_food_max_units": 10,
+  "carry_in_water_min_units": 8,
+  "carry_in_water_max_units": 12,
+  "carry_in_sample_units": 3,
+
+  "spike_uses_count": 5,
+  "spike_damage_per_use_hp": 40,
+  "spike_build_cost_parts": 4,
+  "spike_reload_cost_parts": 2,
+  "barricade_cost_parts": 2,
+  "door_repair_cost_parts": 2,
+  "door_repair_amount_hp": 60,
+  "dismantle_yield_parts": 3,
+  "dismantle_duration_gh": 2,
+  "parts_store_cap_units": 20,
+
+  "stage_b_parts_demand_units": 48
+}

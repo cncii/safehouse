@@ -1,0 +1,36 @@
+{
+  "$schema_note": "总览节点图：节点 + 连线 + 距离（GH 成本）。距离 = 时间/体力预算的唯一可视化依据，也是「今天去不去郊区农场」的唯一决策依据。",
+  "$provisional": "本文件除节点 id / theme_id / 语义标签外，全部数值为 PROVISIONAL——结构可用、数值待设计侧定稿。缺数五格清单见 data/UNDEFINED.md（D-001..D-003）。在设计侧签字前，这些数不构成「定稿数值」。",
+  "_comment_semantics": "purpose 标签取自设计基线 2.6（该地点主要产出什么），不是数值，可直接用。",
+
+  "nodes": {
+    "safehouse":        { "theme_id": "safehouse",   "purpose_key": "LOC_HOME",      "high_freq": false, "danger_mult": 0.0, "refill_from_day_count": 9999 },
+    "supermarket":      { "theme_id": "commercial",  "purpose_key": "LOC_SUPERMKT",  "high_freq": true,  "danger_mult": 0.8, "refill_from_day_count": 4 },
+    "gas_station":      { "theme_id": "industrial",  "purpose_key": "LOC_GAS",       "high_freq": true,  "danger_mult": 1.0, "refill_from_day_count": 4 },
+    "department_store": { "theme_id": "commercial",  "purpose_key": "LOC_DEPT",      "high_freq": false, "danger_mult": 1.1, "refill_from_day_count": 9999 },
+    "hardware_store":   { "theme_id": "commercial",  "purpose_key": "LOC_HARDWARE",  "high_freq": true,  "danger_mult": 0.9, "refill_from_day_count": 4 },
+    "pharmacy":         { "theme_id": "commercial",  "purpose_key": "LOC_PHARMACY",  "high_freq": false, "danger_mult": 1.2, "refill_from_day_count": 9999 },
+    "police_station":   { "theme_id": "industrial",  "purpose_key": "LOC_POLICE",    "high_freq": false, "danger_mult": 1.4, "refill_from_day_count": 9999 },
+    "residential":      { "theme_id": "residential", "purpose_key": "LOC_RESID",     "high_freq": true,  "danger_mult": 0.9, "refill_from_day_count": 4 },
+    "farm":             { "theme_id": "residential", "purpose_key": "LOC_FARM",      "high_freq": false, "danger_mult": 1.3, "refill_from_day_count": 9999 },
+    "metro":            { "theme_id": "industrial",  "purpose_key": "LOC_METRO",     "high_freq": false, "danger_mult": 1.6, "refill_from_day_count": 9999 },
+    "radio_tower":      { "theme_id": "industrial",  "purpose_key": "LOC_RADIO",     "high_freq": false, "danger_mult": 1.5, "refill_from_day_count": 9999 }
+  },
+
+  "edges": [
+    { "from": "safehouse",        "to": "supermarket",      "travel_cost_gh": 1.0 },
+    { "from": "safehouse",        "to": "residential",      "travel_cost_gh": 1.0 },
+    { "from": "safehouse",        "to": "hardware_store",   "travel_cost_gh": 1.5 },
+    { "from": "safehouse",        "to": "gas_station",      "travel_cost_gh": 2.0 },
+    { "from": "supermarket",      "to": "pharmacy",         "travel_cost_gh": 1.0 },
+    { "from": "supermarket",      "to": "department_store", "travel_cost_gh": 1.5 },
+    { "from": "hardware_store",   "to": "department_store", "travel_cost_gh": 1.5 },
+    { "from": "residential",      "to": "farm",             "travel_cost_gh": 2.5 },
+    { "from": "residential",      "to": "police_station",   "travel_cost_gh": 1.5 },
+    { "from": "gas_station",      "to": "metro",            "travel_cost_gh": 2.0 },
+    { "from": "police_station",   "to": "metro",            "travel_cost_gh": 1.5 },
+    { "from": "department_store", "to": "radio_tower",      "travel_cost_gh": 3.0 }
+  ],
+
+  "_comment_cost_semantics": "travel_cost_gh 是单程 GH 成本。阶段A 白天出门窗口 10GH，故单程 ≤3 才留得住往返+搜刮——这是数值上的硬约束，不是建议。"
+}

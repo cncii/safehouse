@@ -1,0 +1,40 @@
+{
+  "$schema_note": "四条状态与消耗速率。键名格式：<域>_<量>_<单位>。本文件为唯一权威源，禁止在别处重复定义同名键。",
+  "hp_max_hp": 100,
+  "stamina_max_units": 100,
+  "hunger_max_units": 100,
+  "thirst_max_units": 100,
+
+  "hunger_rate_per_gh": 5.0,
+  "thirst_rate_per_gh": 7.0,
+
+  "hp_loss_hunger_zero_per_sec": 1.0,
+  "hp_loss_thirst_zero_per_sec": 1.5,
+
+  "food_hunger_gain_units": 25,
+  "water_thirst_gain_units": 30,
+
+  "stamina_sprint_per_sec": 1.5,
+  "stamina_attack_cost_units": 3,
+  "stamina_dodge_cost_units": 6,
+  "stamina_hit_cost_units": 5,
+  "stamina_energybar_gain_units": 25,
+  "stamina_meal_gain_units": 40,
+  "stamina_bed_gain_per_gh": 15,
+
+  "forced_sleep_threshold_pct": 5,
+  "wild_sleep_duration_gh": 2,
+  "wild_sleep_hp_penalty_hp": 15,
+  "wild_sleep_stamina_refill_pct": 20,
+  "incap_duration_frames": 216,
+  "incap_stamina_refill_pct": 10,
+
+  "derived": {
+    "hunger_full_to_zero_gh": 20.0,
+    "thirst_full_to_zero_gh": 14.2857,
+    "death_after_hunger_zero_sec": 100.0,
+    "death_after_thirst_zero_sec": 66.6667,
+    "food_units_per_day": 4.8,
+    "water_units_per_day": 5.6
+  }
+}

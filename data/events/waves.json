@@ -1,0 +1,84 @@
+{
+  "_comment": "7 夜波次配置权威源（包 C·事件与战斗组）。18:00 开波（M19：物化时刻 18:00±1 帧）。",
+  "_spec_batch": "任务书 §7 已定：一个 batch 只放一个 enemy_id + 一个 entry_point；count 是上限不是硬生成数，实际取 min(count, pool_remaining)。",
+  "_spec_materialize": "物化 = 按 (day, night_index, batch, slot) 槽位 hash（RNG 子流 SPAWN_WAVE），零顺序消费——不依赖击杀顺序/开箱顺序，同种子重开逐项相等（M19 / P11-D）。",
+  "_constraint": "禁开 trap_spike 域（架构 §18.2：陷阱参数只在 traps.json，同一事实不许两处）。本表不写陷阱伤害。",
+  "_curve": "strength_multiplier 为该夜强度乘数；夜7 未完成反转链时另乘 1.3（架构 9.2「未完成则夜7强度+30%」，由调用方传入，不在本表预乘）。",
+
+  "wave_start_gh": 18.0,
+  "night_window_gh": 12.0,
+
+  "nights": {
+    "1": {
+      "night_index": 1,
+      "calendar_day": 8,
+      "strength_multiplier": 1.0,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_shambler", "entry_point": "door_main",   "count": 3 },
+        { "batch": 1, "enemy_id": "zombie_shambler", "entry_point": "window_side", "count": 2 }
+      ]
+    },
+    "2": {
+      "night_index": 2,
+      "calendar_day": 9,
+      "strength_multiplier": 1.15,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_shambler", "entry_point": "door_main",   "count": 4 },
+        { "batch": 1, "enemy_id": "zombie_shambler", "entry_point": "window_side", "count": 3 },
+        { "batch": 2, "enemy_id": "zombie_runner",   "entry_point": "back_door",   "count": 2 }
+      ]
+    },
+    "3": {
+      "night_index": 3,
+      "calendar_day": 10,
+      "strength_multiplier": 1.32,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_runner",   "entry_point": "back_door",   "count": 3 },
+        { "batch": 1, "enemy_id": "zombie_shambler", "entry_point": "door_main",   "count": 4 },
+        { "batch": 2, "enemy_id": "zombie_shambler", "entry_point": "window_side", "count": 3 }
+      ]
+    },
+    "4": {
+      "night_index": 4,
+      "calendar_day": 11,
+      "strength_multiplier": 1.52,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_breaker",  "entry_point": "door_main",   "count": 2 },
+        { "batch": 1, "enemy_id": "zombie_runner",   "entry_point": "window_side", "count": 3 },
+        { "batch": 2, "enemy_id": "zombie_shambler", "entry_point": "back_door",   "count": 3 }
+      ]
+    },
+    "5": {
+      "night_index": 5,
+      "calendar_day": 12,
+      "strength_multiplier": 1.75,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_breaker",  "entry_point": "door_main",   "count": 3 },
+        { "batch": 1, "enemy_id": "zombie_spitter_acid", "entry_point": "window_side", "count": 2 },
+        { "batch": 2, "enemy_id": "zombie_runner",   "entry_point": "back_door",   "count": 4 }
+      ]
+    },
+    "6": {
+      "night_index": 6,
+      "calendar_day": 13,
+      "strength_multiplier": 2.02,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_breaker",  "entry_point": "door_main",   "count": 3 },
+        { "batch": 1, "enemy_id": "zombie_breaker",  "entry_point": "back_door",   "count": 2 },
+        { "batch": 2, "enemy_id": "zombie_spitter_acid", "entry_point": "window_side", "count": 3 },
+        { "batch": 3, "enemy_id": "zombie_runner",   "entry_point": "door_main",   "count": 4 }
+      ]
+    },
+    "7": {
+      "night_index": 7,
+      "calendar_day": 14,
+      "strength_multiplier": 2.32,
+      "batches": [
+        { "batch": 0, "enemy_id": "zombie_breaker",  "entry_point": "door_main",   "count": 4 },
+        { "batch": 1, "enemy_id": "zombie_spitter_acid", "entry_point": "window_side", "count": 3 },
+        { "batch": 2, "enemy_id": "zombie_breaker",  "entry_point": "back_door",   "count": 3 },
+        { "batch": 3, "enemy_id": "zombie_runner",   "entry_point": "door_main",   "count": 5 }
+      ]
+    }
+  }
+}

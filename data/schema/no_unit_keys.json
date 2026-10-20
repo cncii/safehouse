@@ -1,0 +1,11 @@
+{
+  "_comment": "结构型无单位键白名单（M28-a 豁免）。上限 10 条——超过 = 不是个别例外，是规则错了。",
+  "keys": [
+    "night_index",
+    "batch",
+    "slot",
+    "level",
+    "seq",
+    "display_order"
+  ]
+}

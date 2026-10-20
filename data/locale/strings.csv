@@ -1,0 +1,18 @@
+﻿KEY,zh_CN,zh_TW,en
+HUD_VITAL_HP,生命,生命,HP
+HUD_VITAL_STAMINA,体力,體力,STA
+HUD_VITAL_HUNGER,饱食,飽食,FED
+HUD_VITAL_THIRST,水分,水分,WTR
+HUD_CLOCK_DAY,D{day},D{day},D{day}
+HUD_CLOCK_TIME,时间,時間,TIME
+HUD_STAGE_A_LOOT,搜刮阶段,搜刮階段,Loot Phase
+HUD_STAGE_B_SIEGE,守家阶段,守家階段,Siege Phase
+HUD_STAGE_UNKNOWN,未知,未知,Unknown
+SETTINGS_TITLE,设置,設置,Settings
+SETTINGS_LANG,语言,語言,Language
+SETTINGS_KEYBIND,按键,按鍵,Keybinds
+SETTINGS_KEYBIND_TODO,待接入（判据 S6）,待接入（判據 S6）,Pending (S6)
+SETTINGS_CLOSE,关闭,關閉,Close
+LANG_NAME_ZH_CN,简体中文,简体中文,Simplified Chinese
+LANG_NAME_ZH_TW,繁體中文,繁體中文,Traditional Chinese
+LANG_NAME_EN,English,English,English

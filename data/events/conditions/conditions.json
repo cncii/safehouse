@@ -1,0 +1,37 @@
+{
+  "_comment": "条件轮询事件表（包 C·事件与战斗组）。三类触发的第三类：按结构化谓词轮询，不掷骰。",
+  "_spec": "condition 必须是结构化谓词 {all/any/not + eq/ne/lt/lte/gt/gte}——一个 \"!\" 字符串都不许出现（架构 v1.4 否决案 / 任务书 §4 #3）。",
+
+  "conditions": [
+    {
+      "id": "ev_low_hunger_warning",
+      "name": "饥饿预警",
+      "poll": { "gh_every": 1.0 },
+      "condition": {
+        "all": [
+          { "path": "player.hunger", "op": "lt", "value": 20.0 },
+          { "path": "ui.hints.tech_L2_1_trap", "op": "eq", "value": false }
+        ]
+      },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "ui_hints", "id": "tech_L2_1_trap", "field": "enabled", "value": true }
+      ],
+      "_judgement": "P23 ui.hints 必须入档，否则读档后提示重弹或漏弹"
+    },
+    {
+      "id": "ev_no_parts_warning",
+      "name": "零件不足预警",
+      "poll": { "gh_every": 2.0 },
+      "condition": {
+        "any": [
+          { "path": "player.thirst", "op": "lt", "value": 15.0 }
+        ]
+      },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "ui_hints", "id": "tech_L2_1_trap", "field": "enabled", "value": true }
+      ]
+    }
+  ]
+}

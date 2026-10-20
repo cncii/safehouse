@@ -1,0 +1,20 @@
+{
+  "_comment": "生成表（包 C·事件与战斗组）。kind=spawn 只能引用本表的 id，禁止内联敌人参数（架构 §3.7 / effect.schema.json 硬约束）。",
+  "_spec": "count 一律是上限语义（min(count, pool_remaining)），不是硬生成数。anchor 限 4 入口枚举。",
+
+  "tables": {
+    "scavenge_loot": {
+      "name": "旧物资点",
+      "entry_point": "front_door",
+      "enemy_id": "",
+      "count": 2,
+      "_note": "空 enemy_id = 只落物资不生成敌人（M19 物化遇空 id 应跳过敌人生成而非崩）"
+    },
+    "night_raid_small": {
+      "name": "夜间小股袭击",
+      "entry_point": "front_door",
+      "enemy_id": "zombie_shambler",
+      "count": 2
+    }
+  }
+}

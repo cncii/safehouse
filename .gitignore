@@ -1,0 +1,16 @@
+# build 产物
+build/steam/output/
+build/steam/content/
+*.tmp
+
+# Godot
+.godot/
+*.tmp
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# 临时日志（import/验证过程产物）
+*.log
+_*.log

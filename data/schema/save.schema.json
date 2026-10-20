@@ -1,0 +1,80 @@
+{
+  "_comment": "存档文件结构定义（user://save.sav 解压后的 JSON）——架构 §5.2 九类持久化清单的字段落盘。这是逻辑组/战斗组实现 to_save() 的组装蓝图。与 state_contract.json 的关系：contract 管运行期数值路径鉴权（StateStore.apply），本文件管存档里有什么（容器型状态在这里）。注意 C7：save_reason 不参与内容语义，哈希比对须排除。C19：阶段B 存档点为 06:00 天亮（save_reason=night_cleared），05:00 落在波次中间不存。",
+  "schema_version": { "type": "int", "desc": "迁移链版本，当前 1" },
+  "save_reason": { "type": "enum", "values": ["day_start_05_00", "night_cleared", "manual_exit", "event_fired", "death"], "desc": "S16 判据：5 值须全部出现；不参与内容语义（C7）" },
+
+  "time": {
+    "desc": "⑥ 倒计时",
+    "day": "int 1..15",
+    "stage": "enum A|B",
+    "phase": "enum PREP|OUTING|EVENING|TRANSITION_NIGHT|NIGHT_WAVE",
+    "night_index": "int 阶段B 1..7，阶段A 恒 0",
+    "k_overtime": "int 阶段A 熬夜夜数（P1① 结构判据的 k，±0）",
+    "gh_elapsed_today": "float 0..24",
+    "mode": "enum REALTIME|WAVE_DRIVEN|SCRIPTED"
+  },
+
+  "player": {
+    "desc": "① 玩家状态（由 StateStore.snapshot() 自动收录，无需 to_save）",
+    "_note": "hp/stamina/hunger/thirst float64 ±0.5 容差；forced_sleep_pending/scene_id/pos/facing/equipped/status_effects 见架构 §5.2"
+  },
+
+  "inventory": {
+    "desc": "② 背包（容器型：不进 state_contract，本系统内部状态）",
+    "capacity": "int 基础 24，储物升级 +50%",
+    "auto_ration": "bool L2 自动配给开关",
+    "items": "array[{instance_id, item_id, count, durability|null}]",
+    "next_instance_seq": "int"
+  },
+
+  "tech": {
+    "desc": "③ 科技进度",
+    "unlocked": "array[语义 key]（禁编号，L2-7 这类只是 display_order）",
+    "researching": "{node_key, points_left, points_total}|null",
+    "blueprints": "array[图纸 key]",
+    "cost_multiplier": "float 二周目 0.5（冗余自检用，权威在 profile）"
+  },
+
+  "facilities": {
+    "desc": "④ 屋内设施（同构结构，每件一段）",
+    "_each": "{level, state: OK|BROKEN, durability, running, store_milli, store_cap_milli, fuel, filter_dirt, last_serviced_gh, breach_immune, dismantleable}",
+    "dismantle_bench.progress_milli": "int 锚点 {0,500,1000,1500,2000}，750 类中间值拒载"
+  },
+
+  "map": {
+    "desc": "⑤ 地图",
+    "current_node": "string",
+    "unlocked_nodes": "array[string]",
+    "locations": "_each: {visited_days[], looted[](搜刮标记), refill_generation, seed_salt}",
+    "pending_refills": "array[string]"
+  },
+
+  "events": {
+    "desc": "⑦ 事件（C17 append-only：重放不重新掷骰）",
+    "event_log": "array[{key: event_id:day:slot, day, slot_index}]",
+    "triggered_total": "array[once 事件 key]",
+    "scheduled_cursor": "int",
+    "condition_cooldowns": "{event_key: gh}",
+    "wave": "{night_index, batch, spawned, killed, pool_remaining, strength_multiplier}"
+  },
+
+  "random": {
+    "desc": "⑧ 随机（读档强校验，不符判坏档）",
+    "global_seed": "int",
+    "day_index_of_seed": "int == time.day，不等即坏档",
+    "day_seed": "int 重算必须匹配"
+  },
+
+  "ui_hints": {
+    "desc": "第 10 类持久化（ui.hints.*，不入档则提示重弹或漏弹）",
+    "trap_telegraph": "bool",
+    "tech_L2_1_trap": "bool"
+  },
+
+  "integrity": {
+    "desc": "冗余校验（非权威，早期发现坏档）",
+    "engine_version": "string", "content_version": "string"
+  },
+
+  "_missing_fields": "缺口照旧进 data/UNDEFINED.md（五格格式），勿自行填默认值"
+}

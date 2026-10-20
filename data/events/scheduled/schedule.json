@@ -1,0 +1,35 @@
+{
+  "_comment": "定时事件表（包 C·事件与战斗组）。按数组序消费，event_cursor 入存档（架构 5.3 scheduled_cursor）。",
+  "_spec": "触发时刻由 trigger.day + trigger.gh 唯一确定，不掷骰——掷骰只发生在随机事件表。",
+
+  "schedule": [
+    {
+      "id": "ev_trap_hint",
+      "name": "陷阱预警提示",
+      "trigger": { "day": 3, "gh": 6.0 },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "ui_hints", "id": "trap_telegraph", "field": "enabled", "value": true }
+      ]
+    },
+    {
+      "id": "ev_d3_intro",
+      "name": "第三日·屋顶异响",
+      "trigger": { "day": 3, "gh": 21.0 },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "location", "id": "roof", "field": "unlocked", "value": true }
+      ]
+    },
+    {
+      "id": "ev_stage_b_entry",
+      "name": "阶段B·转入守屋",
+      "trigger": { "day": 7, "gh": 20.0 },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "meta", "id": "run", "field": "stage_b", "value": true }
+      ],
+      "_judgement": "D7 20:00 门锁死 = 阶段切换点唯一（架构 9.2 修订）"
+    }
+  ]
+}

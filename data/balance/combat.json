@@ -1,0 +1,12 @@
+{
+  "_comment": "战斗组可调参数权威源（包 C·事件与战斗组）。帧常量（无敌9/前摇8/后摇6/硬直12/失能216）按 C28 唯一权威在 src/systems/time_system.gd，本文件不重复定义，只存战斗组自有资源/伤害量。combat_arena 热重载读这里。",
+  "combat_stamina_attack_cost": 3,
+  "combat_stamina_dodge_cost": 6,
+  "combat_stamina_sprint_per_s": 1.5,
+  "combat_stamina_hit_cost": 5,
+  "combat_damage_base": 25,
+  "combat_damage_boost": 35,
+  "combat_damage_apex": 50,
+  "combat_dps_theoretical": 41.7,
+  "combat_dps_effective": 27
+}

@@ -1,0 +1,60 @@
+{
+  "_comment": "随机日内事件表（包 C·事件与战斗组）。slot_index 对应日内时段槽，RNG 子流 EVENT_ROLL 逐槽独立掷骰——零累积、不顺序消费。",
+  "_spec": "每个事件的 impact 只能是 4 类封闭集之一（num/flag/time/spawn，见 effect.schema.json）。不写状态，效果交 EffectSink 落地。",
+  "_constraint": "事件 id 不得编码会变的数据（日期只放 trigger.day）——ev_trap_hint 三次改期后立的基线条款。",
+
+  "slots": [0, 1, 2, 3],
+
+  "events": [
+    {
+      "id": "ev_trap_hint",
+      "name": "陷阱预警提示",
+      "trigger": { "type": "scheduled", "day": 3, "gh": 6.0 },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "ui_hints", "id": "trap_telegraph", "field": "enabled", "value": true }
+      ],
+      "_judgement": "P18(可感知) P23(ui.hints 入档持久化，读档后提示不重弹不漏弹)"
+    },
+    {
+      "id": "ev_gas_robbed",
+      "name": "加油站被抢",
+      "trigger": { "type": "random", "day_min": 4, "weight": 1 },
+      "impact": "num",
+      "effects": [
+        { "kind": "num", "path": "loop.store_food_milli", "verb": "clamp", "value": 8000 }
+      ],
+      "_judgement": "P8(线性叠加) P9(幂等键不重复发放)"
+    },
+    {
+      "id": "ev_neighbor_water",
+      "name": "邻居敲门求水",
+      "trigger": { "type": "random", "day_min": 2, "weight": 1 },
+      "impact": "num",
+      "effects": [
+        { "kind": "num", "path": "loop.store_water_milli", "verb": "add", "value": -1000 }
+      ],
+      "_judgement": "P8; condition_cooldowns 存档段见架构 5.3"
+    },
+    {
+      "id": "ev_power_surge",
+      "name": "电网波动",
+      "trigger": { "type": "random", "day_min": 5, "weight": 1 },
+      "impact": "flag",
+      "effects": [
+        { "kind": "flag", "scope": "facility", "id": "generator", "field": "brownout", "value": true }
+      ],
+      "_judgement": "P10(事件改开关→读档回滚 diff=0)"
+    },
+    {
+      "id": "ev_scavenge_cache",
+      "name": "发现旧物资点",
+      "trigger": { "type": "random", "day_min": 1, "weight": 1 },
+      "impact": "spawn",
+      "effects": [
+        { "kind": "spawn", "table_id": "scavenge_loot", "count": 2, "anchor": "front_door" }
+      ],
+      "_judgement": "M19(纯消费者禁掷骰); kind=spawn 只能引用 spawn_tables.json 的 id"
+    }
+  ]
+}

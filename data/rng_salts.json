@@ -1,0 +1,11 @@
+{
+  "_comment": "RNG 子流盐值（架构 §5.5 契约 6：一旦随版本发布就不可改值；加新子流只能在末尾追加）。派生公式：mix64(day_seed(day) ^ SALT ^ hash(keys))。",
+  "LOOT": 3735928559,
+  "SPAWN_WAVE": 3735928560,
+  "SPAWN_AMBIENT": 3735928561,
+  "EVENT_ROLL": 3735928562,
+  "EVENT_PARAM": 3735928563,
+  "REFILL": 3735928564,
+  "FLAVOR": 3735928565,
+  "BREACH": 3735928566
+}
