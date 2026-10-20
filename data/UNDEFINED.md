@@ -28,6 +28,8 @@
 | D-006 | `map_system.loot_point()` | `loot_tables.json` 全部 `entry_weight_ratio` / `entry_min_count` / `entry_max_count` | **D8 食物/净水是否够**——背包基线与阶段 B 生存线的共同上游 | 创意总监 | P12、S7-b 的现实侧、M32 |
 | D-007 | 背包 | `items.json` 的 `weight_units` / `durability_units` / `effect` 引用 | 背包容量 24 格（P12 的分母）与"带得动多少零件" | 创意总监 | P12 / P13；随身物资取舍 |
 | D-014 | `inventory_system._effect_delta()` | `item_med_gauze` 的回血量（`effect` 引用）。survival.json 只定稿了食物/净水/能量棒三条效果，医疗包没定 | 决定"受伤后多久能回本"，直接影响野睡扣血后的容错 | 创意总监 | 阶段 B 医疗消耗闭合；`items.json` 的 effect 字段整体 |
+| D-015 | `tech_tree_system._complete_research()` | `tech_tree.json` 的 24 个节点**一个 `effects` 字段都没有**（只有 layer/cost_parts/research_gh/prereq）。设计基线 2.3 明明有「L3-1 雨水收集器→脏水 0.20→0.35/GH」这类解锁效果 | **科技树解一个节点，世界没有任何变化**——现在"研究完成"只是点亮一个 key。循环系统的 L3 收益目前只能靠手改 loop.json | 创意总监 | 科技树 24 节点的实际玩法价值；多周目解锁表 |
+| D-016 | `tech_tree_system.start_research()` | 扣零件的**落点未定**：零件是背包里的容器型物品（`item_parts`），但包 B 白名单禁止横向持有 InventorySystem 引用 | 科技研究能不能开工取决于零件够不够。**没定就没法做"零件不足时拒绝开研究"这条判据** | 架构 + 需求方（建议：`inventory.parts_count` 走数值型 contract，或指定一个注入式扣除回调） | 科技树开工前置校验；P12 背包基线 |
 | D-008 | `map_system._build_rooms()` | 布局专用 RNG 子流。当前**借用 `FLAVOR`**（房间排布属呈现随机，不耦合玩法数值） | 若日后把 FLAVOR 派给他用，布局会跟着变——RNG 盐值表只许末尾追加，改不了旧值 | **架构总监**（追加 `LAYOUT` 盐值到 `data/rng_salts.json` 末尾） | 不阻塞，但**记账**：这是本轮唯一一次借用他人数值 |
 | D-009 | `map_system` 搜刮标记 | `state_contract.json` 缺 `map.looted_nodes`（已搜刮标记）与 `map.refilled_nodes`（回填状态）两条路径 | 搜过即打空是设计基线 2.6 明写的规则，**没有状态路径就存不进档** | 需求方 + 架构 + QA（三方过审，协作纪律 5） | ~~阻塞搜刮/回填的存档一致性~~ **已裁决（见下）** |
 | D-010 | P24 隐藏状态 | `locations.json` 缺"隐藏时遭遇率 -60%"的落点与作用范围 | P24 判据无判据对象 | 创意总监 | P24 |
@@ -45,6 +47,8 @@
 | T-002 | `themes.json` 单文件而非 `themes/*.json` | M28-b 判据是"同名叶子键只能出现在 1 个文件"，拆多文件会让 `layout_room_count` 这类同名不同值的键被误判为重复定义 | 已按现行判据收敛；若包 F 放宽 M28-b，可再拆回目录 |
 | T-003 | `StateStore._authorize` 对 op 值本身做 min/max 校验 | 负增量走 `add()` 会被判"低于 min 0"拒写。`vitals_system` 已改走绝对值 `setv` 规避 | core 是否语义化由架构总监定；不改也不影响逻辑组 |
 | T-004 | `travel_cost` 无连线返回 `-1` 而非 `0` | `-1` = 不可达，调用方必须处理。**返回 0 会被当成免费传送** | 已实现，调用方（战斗组/表现组）需知会 |
+| T-005 | 本组三个自检尚未接进判据套件 | `map_system.verify_determinism()`（M9/P16）、`inventory_system.verify_capacity_conservation()`（P12/P13）、`continuous_action.verify_continuous_actions()`（M20）、`tech_tree_system.verify_tech_tree()`（P22-0/P28）——**判据本体都在逻辑组自己的文件里**，但 `tests/**` 归包 F，需要他们加 `test_map/test_inventory/test_continuous/test_tech` 各一个接线文件 | 包 F 接线；接线前这四组判据只能标「未生效」 |
+| T-006 | `tools/test.ps1` 在**没有 UTF-8 环境变量**的 shell 里 stage 1 会崩 | `validate_data.py` 的判据名含 `↔`(U+2194)，中文 Windows 的 GBK 编不了 → `UnicodeEncodeError` → exit 1 → stage 1 判红。WorkBuddy 的 Bash 工具预设了 `PYTHONIOENCODING=utf-8`/`PYTHONUTF8=1`，PowerShell 没有 | 建议包 F 在 test.ps1 顶部加 `$env:PYTHONIOENCODING="utf-8"`（与已有的 F6 控制台编码处理同源）。**这不是判据红，是环境崩**——两者必须能区分 |
 
 ---
 
