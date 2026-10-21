@@ -159,13 +159,16 @@ func _test_degrade_chain_1012() -> void:
 	_t("1012(1b): backend_ready() true (degraded backend IS usable)",
 		svc.backend_ready())
 
-	# ② 降级有日志记录（查日志文件里是否有 null_backend 记录）
+	# ② 降级有日志记录（要真的在日志里找到）
+	# ⚠ 踩坑（实测）：最初**跳过了活动日志 godot.log**（理由同 pii_probe：内容在变），
+	#   结果降级判据永远红——因为 Logger.log() 只是 print(line)，
+	#   记录落在**本次运行的 stdout**（= 活动日志 godot.log），历史日志里没有当次记录。
+	# → 正确口径：活动日志**也要读**（降级记录必然在这里）；
+	#   只找降级关键词，不会被别的探针输出干扰。
 	var logs := _collect_log_files()
 	var found_log := false
 	var log_files_checked := 0
 	for f: String in logs:
-		if f.get_file() == "godot.log":
-			continue   # 活动日志正在写，内容会变，跳过（与 pii_probe 同理）
 		var text := _read_text(f)
 		if text.is_empty():
 			continue
@@ -175,6 +178,21 @@ func _test_degrade_chain_1012() -> void:
 			break
 	_t("1012(2): degradation recorded in log (checked %d log files)" % log_files_checked,
 		found_log)
+	# ⚠ 时序：Logger.log() 是 print(line)，**落盘**由 Godot 的 log-file 机制异步做。
+	#   判据可能在落盘前就读 → 偶发红。
+	# ⚠ 不用 await：本探针**刻意保持全同步**（await 会让后续断言的求值顺序错乱，
+	#   实测踩过）。改用 OS.delay_msec 阻塞等待落盘，不破坏同步结构。
+	if not found_log:
+		for attempt in range(20):
+			OS.delay_msec(50)
+			for f2: String in _collect_log_files():
+				var t2 := _read_text(f2)
+				if not t2.is_empty() and (t2.contains("null_backend") or t2.contains("no steam env")):
+					found_log = true
+					break
+			if found_log:
+				break
+		_t("1012(2b): degradation log found after blocking wait (async log flush)", found_log)
 
 	# ③ 降级后游戏继续可玩：**行为契约**检查，而不是"有没有崩"
 	# ⚠ 不能写 `var crashed := false`（永远 false = 恒真式）。

@@ -18,3 +18,7 @@ _*.log
 # Python 字节码
 __pycache__/
 *.pyc
+
+# Steam 本机 appID（含本机账号信息，禁入库）
+# 真要跑 GodotSteam 需要时临时放，用完即删（tools/s9_gsteam_probe.ps1 会自动清理）
+steam_appid.txt

@@ -315,27 +315,35 @@ powershell -ExecutionPolicy Bypass -File tools\s9_net_probe.ps1
 >    （`RefCounted` / `script` / `<源文件名>.gd`）——那不是业务状态，
 >    判据只该盯脚本自己声明的成员。
 
-### 8.4 要让「GodotSteam 失败回连 Valve」这条判据**可测**，缺这三样
+### 8.4 架构 1075 条「GodotSteam 失败回连 Valve」—— **已验证通过**
 
-架构 1075 / 1012 条把它列为「唯一待验证项」。本轮实查结论：**当前工程无法触发它**，
-因为根本没有 SDK 可初始化。三样前置：
+> ⚠ **2026-10-21 18:30 更新**：本节结论已从「缺三样前置」改为「**已验证通过**」。
+> 老板登录 Steam 后，战斗组下载了 GodotSteam 4.15-gde 并实测，结论如下。
 
-| # | 缺什么 | 现状（实查） | 谁做 |
-|---|---|---|---|
-| 1 | **Steam 客户端装完整** | `C:\Program Files (x86)\Steam` 只有启动器（39 文件 / 14.6 MB），**缺** `steamclient64.dll` / `steam_api64.dll` / `bin\steamerrorreporter.exe`。用 `Start-Process` 启动后进程存活一小会儿即退出，**webhelper 从未启动** → 卡在登录界面等**用户交互**，联网自更新没跑完 | **老板/测试组：手动打开 Steam 并登录一次**，让它把组件下载完（登录后应看到 `steamclient64.dll` 出现） |
-| 2 | **GodotSteam GDExtension 4.3.x** | 工程 `addons/` 为空，**无任何 `.gdextension` 文件**。架构要求「版本与 Godot 强绑定（4.3.x 配 4.3.x）并写进 `docs/architecture.md` 锁定」 | 包 E / 架构侧 |
-| 3 | **`src/platform/steam_binding.gd`** | 不存在。`steam_service.gd` 已按"文件缺失也要安全降级"写好（不崩、走 NullSteam），但**没有 binding 就永远走降级路径** | 包 E |
+架构 1075 / 1012 条原文：「GodotSteam 配 `embed_pck` 后热重载能否回连 →
+**失败必须走 `NullSteam` 降级**」/「启动期崩溃 → **回连失败必须走 NullSteam 降级并记日志**」
 
-> ⚠ 排查提示：Steam 启动后本机有进程在连 `111.31.2.250:443`（Steam 更新服务器），
-> 但那是 **WorkBuddy 自己**（PID 49124 = `WorkBuddy.exe`），不是 Steam 在下载。
-> Steam 侧**确实没有**任何下载行为 → 它根本没进入自更新阶段。
+**实测（本机 Steam 客户端已登录，Godot 4.3 + GodotSteam 4.15-gde）**：
 
-补齐后，`steam_service._try_init_godotsteam()` 的判定口径**已经就绪**：
-只查 `ClassDB.class_exists("Steam")`，**不发任何网络请求**（S9 零出站要求连探测 SDK 都不能连网）。
+| 情形 | `steamInitEx()` | 对外连接 | DNS | 降级链 |
+|---|---|---|---|---|
+| A 无 `steam_appid.txt` | **失败**："No appID found…" | **0** | **0** | ✅ 9 条判据全绿 |
+| B 有 `steam_appid.txt`（Spacewar 480） | **成功**（status=0） | **0** | **0** | — |
 
-> 判据怎么写才不假绿：不能只测"能初始化"，要测
-> **「初始化失败 → 走 NullSteam 降级 → 游戏继续可玩 → 日志有降级记录」**
-> 这条链（架构 1012 条的原话"启动期崩溃 → 回连失败必须走 NullSteam 降级并记日志"）。
+**答案：GodotSteam 初始化失败时不会回连 Valve**（零出站、零 DNS），
+且失败后走 NullSteam 降级并记日志。
+→ **S9 零出站硬约束在 GodotSteam 路径上成立**，不需要防火墙兜底。
+→ 架构 §6.2「返回非 OK 走 NullSteam 降级」已由代码实现 + 判据守护。
+
+复跑命令见 `tools/s9_gsteam_probe.ps1`（新增，产出 `tools/s9_gsteam_report.json`）。
+
+**已入库**：`addons/godotsteam/`（GodotSteam 4.15-gde，**仅 win64**，5.7 MB，MIT）。
+版本已按架构 529 行要求**锁定**进 `docs/architecture.md`「Steam 平台」段。
+
+**仍缺一样（归包 E）**：`src/platform/steam_binding.gd`。
+现在跑起来是**正确**的降级路径（`binding_script_missing` → 降级 + 记日志，21/21 判据全绿）；
+补上 binding 后 GodotSteam 才会真正接管，届时 `1012(3b)` 判据需按后端类型分支断言。
+交接细节见 `docs/接口说明_战斗组致包E_GodotSteam接入_TASK-CE.md`。
 
 ### 8.5 其余未覆盖项
 

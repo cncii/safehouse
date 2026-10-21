@@ -36,6 +36,14 @@
 - 单档 `user://save.sav`；原子写（tmp→自校验→bak→rename）；读档零写入
 - 夜战进行中退出不写档（与崩溃同路径，防"退出比死亡划算"）
 
+## Steam 平台
+- **GodotSteam 版本锁定：4.15-gde（对应 Godot 4.1–4.3）**，随附 `addons/godotsteam/`（仅 win64，首发平台）
+  - 完整决策链见架构方案 §6.1 第 529 行「SDK 初始化 ✅ 必须」——版本与 Godot 强绑定，**升 Godot 必须同步升 GodotSteam**
+  - 许可：MIT（`addons/godotsteam/license.txt`）；其余平台从 Codeberg 官方包取回
+  - **探测 SDK 不得发网络请求**：`_try_init_godotsteam()` 只查 `ClassDB.class_exists("Steam")`（S9 零出站硬约束）
+  - 初始化失败（无 appID / 未登录）**必须**走 NullSteam 降级并记日志（架构 1012 条，已由 `scenes/debug/steam_probe.tscn` 的 1012(1)–(4) 守护）
+  - 实测（2026-10-21）：GodotSteam 初始化**失败时不回连 Valve**（对外连接 0 / DNS 0），架构 1075 条已验证通过
+
 ## 验收
 - `tools/test.ps1` 单入口四 stage；空跑判负；报告两段（gate/review）+ coverage_statement
 - 判据落笔四问：适用域？随第二变量分裂？余量/误差>3？失败可归因？

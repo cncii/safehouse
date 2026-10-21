@@ -1,0 +1,27 @@
+﻿{
+    "generated_at":  "2026-10-21T18:43:24.9888292+08:00",
+    "godotsteam_version":  "4.15",
+    "cases":  [
+                  {
+                      "case":  "A_no_appid",
+                      "appid_present":  false,
+                      "outbound_count":  0,
+                      "dns_count":  0,
+                      "outbound_detail":  [
+
+                                          ],
+                      "stdout":  "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\r\n\r\nPROBE_BEGIN\r\ngodotsteam_version=4.15\r\nis_steam_running_before=true\r\nsteamInitEx_result={\"status\":1,\"verbal\":\"No appID found.  Either launch the game from Steam, or put the file steam_appid.txt containing the correct appID in your game folder.\"}\r\nis_steam_running_after=true\r\nPROBE_END\r\n"
+                  },
+                  {
+                      "case":  "B_with_appid",
+                      "appid_present":  true,
+                      "outbound_count":  0,
+                      "dns_count":  0,
+                      "outbound_detail":  [
+
+                                          ],
+                      "stdout":  "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\r\n\r\nPROBE_BEGIN\r\ngodotsteam_version=4.15\r\nis_steam_running_before=true\r\nsteamInitEx_result={\"status\":0,\"verbal\":\"\"}\r\nis_steam_running_after=true\r\nPROBE_END\r\n"
+                  }
+              ],
+    "note":  "Answers architecture 1075: when GodotSteam init FAILS, does the process make any outbound connection? case A = no appid (default). case B = with steam_appid.txt (Spacewar 480)."
+}
