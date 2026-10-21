@@ -80,18 +80,26 @@ var RE_KEY := "Localize\\.(?:text|textf)\\(\\s*\"([^\"]*)\""
 # 修订 #7（2026-10-20）：逻辑组 924b0f6 新增循环面板 UI 文案（LOOP_BLOCK_/LOOP_CHAIN_/
 # LOOP_DATA_NOT_WIRED/LOOP_PANEL_TITLE/LOOP_REPORT_GAP，带 _ 后缀者为前缀拼接字面量），
 # 冻结基线随之更新 16 → 25。基线过时不是判据错也不是实现错——每次 UI 文案变更须同步本表。
+# 修订 #8（2026-10-21）：表现组 S6 键位重绑 +6 字面量（keybind_settings.gd 的
+# ACTION_ 拼接×2 / KEYBIND_LISTENING / KEYBIND_RESET，ui_smoke.gd 断言对照的
+# ACTION_ 拼接 / ACTION_MOVE_RIGHT）并删除 SETTINGS_KEYBIND_TODO 占位调用点，
+# 冻结基线随之更新 25 → 30。
 var EXPECT_KEYS: Array = [
+		"ACTION_", "ACTION_", "ACTION_", "ACTION_MOVE_RIGHT",
 		"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
 		"HUD_STAGE_UNKNOWN", "HUD_STAGE_UNKNOWN", "HUD_VITAL_HP",
+		"KEYBIND_LISTENING", "KEYBIND_RESET",
 		"LANG_NAME_EN", "LANG_NAME_ZH_CN", "LANG_NAME_ZH_TW",
 		"LOOP_BLOCK_", "LOOP_BLOCK_", "LOOP_CHAIN_", "LOOP_CHAIN_", "LOOP_CHAIN_",
 		"LOOP_DATA_NOT_WIRED", "LOOP_DATA_NOT_WIRED", "LOOP_PANEL_TITLE", "LOOP_REPORT_GAP",
 		"NO_SUCH_KEY_XYZ", "SETTINGS_CLOSE", "SETTINGS_KEYBIND",
-		"SETTINGS_KEYBIND_TODO", "SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
+		"SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
 	]
 
 # A3-3 期望：strings.csv KEY 集合。
 # 修订 #7：随逻辑组循环面板文案更新 17 → 33（HUD×9 / LANG×3 / LOOP×16 / SETTINGS×5）。
+# 修订 #8：随表现组 S6 键位词条更新 33 → 47（+ACTION×10 / +KEYBIND×5 / -SETTINGS_KEYBIND_TODO，
+# 即 HUD×9 / LANG×3 / LOOP×16 / SETTINGS×4 / ACTION×10 / KEYBIND×5）。
 var EXPECT_CSV_KEYS: Array = [
 	"HUD_CLOCK_DAY", "HUD_CLOCK_TIME", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
 	"HUD_STAGE_UNKNOWN", "HUD_VITAL_HP", "HUD_VITAL_HUNGER", "HUD_VITAL_STAMINA",
@@ -100,8 +108,12 @@ var EXPECT_CSV_KEYS: Array = [
 	"LOOP_CHAIN_FOOD", "LOOP_CHAIN_MEDS", "LOOP_CHAIN_POWER", "LOOP_CHAIN_WATER",
 	"LOOP_COL_BLOCK", "LOOP_COL_CHAIN", "LOOP_COL_DAYS", "LOOP_COL_RATE", "LOOP_COL_STOCK",
 	"LOOP_DATA_NOT_WIRED", "LOOP_PANEL_TITLE", "LOOP_REPORT_GAP",
-	"SETTINGS_CLOSE", "SETTINGS_KEYBIND", "SETTINGS_KEYBIND_TODO", "SETTINGS_LANG",
-	"SETTINGS_TITLE",
+	"SETTINGS_CLOSE", "SETTINGS_KEYBIND", "SETTINGS_LANG", "SETTINGS_TITLE",
+	"ACTION_ATTACK", "ACTION_DODGE", "ACTION_INTERACT", "ACTION_INVENTORY",
+	"ACTION_MOVE_DOWN", "ACTION_MOVE_LEFT", "ACTION_MOVE_RIGHT", "ACTION_MOVE_UP",
+	"ACTION_PAUSE", "ACTION_TECH_TREE",
+	"KEYBIND_CONFLICT", "KEYBIND_LISTENING", "KEYBIND_REBIND", "KEYBIND_RESET",
+	"KEYBIND_RESET_DONE",
 ]
 
 func _ready() -> void:
@@ -225,8 +237,9 @@ func _run_localize_asserts() -> void:
 	L._load()
 	# 空跑判负：表必须真的加载出来，否则下面所有值断言都在空表上跑（陷阱 2）
 	# 修订 #7：随逻辑组循环面板文案更新 17 → 33
-	_t("A0-4 locale table loaded (size == 33, else all value asserts are void)",
-		L._table.size() == 33)
+	# 修订 #8：随表现组 S6 键位词条更新 33 → 47（strings.csv 现 47 有效键）
+	_t("A0-4 locale table loaded (size == 47, else all value asserts are void)",
+		L._table.size() == 47)
 	if L._table.size() == 0:
 		_block(["A2-1", "A2-2", "A2-3", "A2-4", "A2-5", "A3-2", "A4-1"],
 			"blocked: locale table empty")
