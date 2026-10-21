@@ -68,8 +68,24 @@
 
 - **规定**：任何嵌入分发的中文像素字体，必须随包附带**原始 license 文件**，并在 `docs/asset_sourcing.md` 登记。
 - **缺 license = 一票否决**（法务风险，Steam 上架会查）。
-- **当前候选**：方舟像素字体 Ark Pixel Font，**SIL OFL 1.1**，支持 10/12/16px，泛中日韩，且区分简繁的地区字形（正对本项目的 `zh_CN / zh_TW` 需求）。
-- ⚠ **已知缺陷（必须让老板知道）**：Ark Pixel **仍在开发阶段、存在缺字**。第三方字体站建议生产环境改用「缝合像素字体」临时过渡。→ 已列入 §8 待确认，未拍板前不得进包。
+- **已定案（2026-10-21 老板核准）**：**Fusion Pixel Font（缝合像素字体）12px**，SIL OFL 1.1，作者 TakWolf。
+  - 落地：`assets/fonts/font_fusion_pixel_12px_zh_hans.ttf` / `..._zh_tw.ttf`（各约 6.8 MB，两地区各一份）
+  - 授权：`assets/_licenses/` 下 **4 份**——本体 + 三个上游（Ark Pixel / Cubic 11 / Galmuri），全部 OFL 1.1
+  - ⚠ 它是**缝合体**：把三个像素字体缝在一起补字，所以授权链是 4 份、不是 1 份。少放一份就是授权不全
+  - 覆盖实测：**37415 个码位**，自带完整 ASCII / 数字 / 全角标点，**不需要额外装拉丁字体**
+- **字号**：正文 / HUD / 数值 **12px**；标题 / 弹窗标题 **16px**（与 16px 图块栅格同源）；
+  10px 仅限极窄角标且需实测。12px 是 640×360 下中文可读下限，10px 笔画会糊。
+- **选型依据（实测数据，不是推荐意见）**：原候选 Ark Pixel 被数据淘汰——
+
+  | 字体 | 当前 `strings.csv`（143 字） | GB2312 一级字（3716 字） |
+  |---|---|---|
+  | Ark Pixel | 缺 5：击 据 药 避 脏 / 擊 據 避 髒 | **缺 147（96.0%）** |
+  | **Fusion Pixel** | **0 缺** | **0 缺（100%）** |
+
+  Ark 缺的字含「热、燃、餐、窗、聚、紧、酸、药、避、警」——末日生存题材的高频字。
+  手补 147 个像素字形不现实，故**不进包**。
+- **验证方式**：`python tools/check_font_coverage.py --csv data/locale/strings.csv --font <ttf>`
+  （退出码非 0 = 有缺字）。`strings.csv` 每次定稿后重跑一次。
 
 ---
 
@@ -286,7 +302,7 @@ Godot_v4.3-stable_win64_console.exe --headless --path <工程根> -s res://build
 □ 4. 视角 = 俯视 3/4，不是纯顶视 / 纯侧视              (S3)
 □ 5. 有 1px 深色描边，且与现有素材风格不混             (S4)
 □ 6. 立绘：192×256 画布 / 半身裁切线一致 / 背景透明     (S5)
-□ 7. 字体：附 license 文件，且是可商用授权              (S6)
+□ 7. 字体：附 license 文件、可商用、且过 `check_font_coverage` 零缺字   (S6)
 □ 8. 授权类型能用于商业发行游戏（不是 CC-BY-NC）        (§8)
 □ 9. 素材许可允许改名后重新打包分发（不能禁止修改的授权不能进包）
 □ 10. 登记进 docs/asset_sourcing.md（来源/站点/许可证/日期）
@@ -331,14 +347,30 @@ python tools/check_assets.py
 
 ---
 
-## 8. 待确认清单（**未拍板前不得开工对应部分**）
+## 8. 核准记录与生效门禁（2026-10-21 全部结案）
 
-| # | 事项 | 影响 | 我的建议 |
+**老板裁决原话**：「U2 接受惯例、U3 保素材、U4 都建、两个文件都留、字体按 OFL 引进」
+
+| # | 事项 | 裁决 | 落地情况 |
 |---|---|---|---|
-| U1 | **Ark Pixel 缺字**：官方仓库与字体站均标注"仍在开发、存在缺字" | 中文字体是 S6 一票否决项，缺字 = 界面出现豆腐块 | 候选「缝合像素字体」作过渡，**需老板定案后我核它的 license** |
-| U2 | **DB32 的商用授权声明**未在检索中取得权威文本 | 色板本身业界长期免费使用，但我不想给老板一个未经核实的法务承诺 | 需老板确认接受"社区惯例免费"或换一个明确 CC0 的色板（我可以重找） |
-| U3 | UI 底板是否改用 Godot `StyleBoxFlat` 纯代码绘制 | 可省素材与图集，但失去像素纹理质感 | 建议**保留像素素材**，StyleBoxFlat 只用于纯调试面板 |
-| U4 | 是否需要 `assets/import_presets/` 统一导入预设 | 架构 §7.3 要求"统一 import preset"，否则后改要重导全部美术 | 建议我做（成本低），待核准后执行 |
+| U1 | 中文字体选型 | **Fusion Pixel 按 OFL 引进** | 4 份授权入 `assets/_licenses/`，两个 ttf 入 `assets/fonts/`，零缺字实测通过 |
+| U2 | DB32 商用授权 | **接受社区惯例** | 沿用 DB32。补充依据：`ui_palette_db32.png` 是**自产程序化生成**，不含任何第三方素材，法务面比"下载别人的色板图"干净 |
+| U3 | UI 底板形态 | **保留像素素材** | `StyleBoxFlat` 仅用于调试面板，正式 UI 一律像素件 |
+| U4 | `_licenses/` + `import_presets/` | **都建** | 两目录已建；导入预设规格见 `assets/import_presets/README.md` |
+| — | `docs/asset_sourcing.md` | **保留** | 已入库 |
+| — | `build/art_proof/` | **入库** | 验收对比图 + 3 个可复跑的验证脚本一并入库 |
+
+### 8.1 当前生效的三道门禁
+
+| 门禁 | 命令 | 管什么 |
+|---|---|---|
+| 资产 | `python tools/check_assets.py` | A1 尺寸 / A2 图集 / A3 命名 / A4 色数 |
+| 导入参数 | `python tools/check_import_presets.py` | 像素字体与纹理的导入参数一致性（架构 §7.3） |
+| 字体覆盖 | `python tools/check_font_coverage.py --csv data/locale/strings.csv --font <ttf>` | S6 缺字 |
+
+> 三道门禁都返回退出码，可串进 CI。`check_assets.py` **仍不可修改**（任务书 §3）；后两个为新增。
+> 注意：`check_import_presets.py` 与 `check_font_coverage.py` 是**白名单外的补充工具**，
+> 与 `asset_sourcing.md` 同批核准（老板「两个文件都留」），后续改动请勿静默重写。
 
 ---
 
@@ -347,7 +379,27 @@ python tools/check_assets.py
 ```
 style_contract.md（本文件）── 准入门槛，先有它才有采购
       │
-      ├── assets/shaders/palette_map.gdshader ── 风格统一手段（优先级最高）
-      ├── assets/sprites/ui/ui_palette_db32.png（32×16 LUT）── shader 的输入
-      └── docs/asset_sourcing.md ── 采购清单 + 授权记录 + 字体（名单外的补充文件，需核准）
+      ├── 风格统一
+      │     ├── assets/shaders/palette_map.gdshader ── 色板统一（优先级最高）
+      │     └── assets/sprites/ui/ui_palette_db32.png（32×16 LUT）── shader 的输入
+      │
+      ├── 字体（S6）
+      │     ├── assets/fonts/font_fusion_pixel_12px_zh_hans.ttf
+      │     └── assets/fonts/font_fusion_pixel_12px_zh_tw.ttf
+      │
+      ├── 授权台账
+      │     ├── assets/_licenses/（4 份 OFL 原文，Steam 上架查证用）
+      │     └── docs/asset_sourcing.md ── 采购清单 + 授权登记
+      │
+      ├── 导入规格（架构 §7.3）
+      │     └── assets/import_presets/README.md ── 参数表 + 理由
+      │
+      └── 门禁（tools/）
+            ├── check_assets.py        （原厂，不可改）
+            ├── check_import_presets.py（新增）
+            └── check_font_coverage.py  （新增）
 ```
+
+**给表现组（包 D）的接口**：字体路径、字号、导入参数即契约，见
+`docs/接口说明_美术组致包D_TASK-ART.md`。命名与路径改动必须通知，否则对方接入即断。
+

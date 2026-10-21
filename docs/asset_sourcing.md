@@ -1,11 +1,10 @@
 # 素材采购与授权记录 · asset_sourcing.md
 
-**版本**：v0.1（2026-10-19）｜**归属**：美术组 TASK-ART v1.0 第一批｜**状态**：待老板核准
+**版本**：v1.0（2026-10-21 结案）｜**归属**：美术组 TASK-ART v1.0｜**状态**：✅ 老板已核准（U1–U4 全部结案）
 **上游**：`docs/style_contract.md`（准入门槛）、任务书 §7「每批交付附来源与授权清单」
 
-> ⚠ **本文件超出任务书 §3 白名单**（白名单只列了 `assets/**` 与 `docs/style_contract.md`）。
-> 采购与授权记录是任务书 §7 的硬性要求，白名单里没有它的容身处，我建了这个文件。
-> **请老板核准保留，或指定它该放哪。**
+> ✅ **白名单核准**：本文件超出任务书 §3 白名单（只列了 `assets/**` 与 `docs/style_contract.md`）。
+> 老板 2026-10-21 明确裁决「两个文件都留」，本文件与 `build/art_proof/` 一并通过保留。
 
 ---
 
@@ -44,8 +43,8 @@
 | 风格契约 | `docs/style_contract.md` | ✅ 已交付 |
 | 色板统一 shader | `assets/shaders/palette_map.gdshader` | ✅ 已交付 |
 | DB32 色板 LUT | `assets/sprites/ui/ui_palette_db32.png`（32×16，32 色） | ✅ 已交付，门禁通过 |
-| 采购与授权记录 | 本文件 | ✅ 已交付 |
-| 中文字体 | 见 §3 | ⚠ **有阻塞，待老板拍板** |
+| 采购与授权记录 | 本文件 | ✅ 已交付（已核准保留） |
+| 中文字体 | 见 §3，`assets/fonts/` | ✅ 已交付（Fusion Pixel 12px 简繁各一份，零缺字实测通过） |
 
 ### 2.2 MVP 批 — **触发条件：灰盒过了手感闸门后，现在不许下单**
 
@@ -82,30 +81,63 @@
 
 ---
 
-## 3. 中文字体（**S6 一票否决项，当前唯一硬阻塞**）
+## 3. 中文字体（**S6 一票否决项 · 已结案**）
+
+### 3.1 结论：Fusion Pixel Font（缝合像素字体）12px，OFL，已入包
 
 | 项 | 内容 |
 |---|---|
-| 字体 | **方舟像素字体 Ark Pixel Font** |
-| 作者 | TakWolf |
-| 授权 | **SIL OFL 1.1** —— 可免费商用、可嵌入分发、可与游戏捆绑销售，**无需署名** |
-| 尺寸 | 10 / 12 / 16 px |
-| 覆盖 | 泛中日韩；**区分 zh_CN / zh_TW 地区字形**（正好对上本项目的 `Localize` 三列 strings.csv） |
-| **已知缺陷** | ⚠ **项目仍在开发阶段，存在缺字。** 官方仓库与多家字体站均如此标注，第三方建议生产环境改用「缝合像素字体」过渡 |
+| 落地文件 | `assets/fonts/font_fusion_pixel_12px_zh_hans.ttf`（7.1 MB）<br>`assets/fonts/font_fusion_pixel_12px_zh_tw.ttf`（7.2 MB） |
+| 上游版本 | `2026.10.16`（TakWolf/fusion-pixel-font 最新发布） |
+| 授权 | **SIL OFL 1.1** — 可商用、可嵌入分发、可与游戏捆绑销售、可修改（衍生作品须同以 OFL 发布） |
+| 授权文件 | `assets/_licenses/` 下 **4 份**：本体 + 上游 Ark Pixel + Cubic 11 + Galmuri |
+| 字符覆盖 | **37415 个码位**；自带 ASCII 95/95、数字 0-9、全角标点、常用符号（× ÷ ℃ · — …） |
+| 实机实测 | 12px 单字 **12.0 × 12.0**，9 字整行 **108.0** — 栅格完美对齐，无亚像素偏移 |
 
-**本项目建议**：
+> ⚠ 它是**缝合体**：把 Ark Pixel / Cubic 11 / Galmuri 三个像素字体缝在一起补字。
+> 所以授权链是 **4 份、不是 1 份**，少放一份即授权不全。四份都在 `assets/_licenses/`。
+
+### 3.2 为什么淘汰了原先推荐的 Ark Pixel（数据说话）
+
+| 字体 | 当前 `strings.csv`（143 唯一 CJK） | GB2312 一级字（3716） |
+|---|---|---|
+| Ark Pixel | 缺 5：击 据 药 避 脏 / 擊 據 避 髒 | **缺 147（96.0%）** |
+| **Fusion Pixel** | **0 缺** | **0 缺（100%）** |
+
+Ark 的缺字清单里有：**热 / 燃 / 餐 / 窗 / 聚 / 紧 / 酸 / 药 / 避 / 警**——末日生存题材的日常用字。
+"手补 147 个像素字形"不是工时问题，是**手补的字不可能与原字体画风一致**的问题，所以不做。
+
+> 方法论教训（可复用）：
+> 1. **字体选型不能凭"官方说支持中文"判断，必须拿真实语料压一遍。**
+> 2. **只测 strings.csv 不够**——它只有 143 字，会严重低估风险；GB2312 一级字表才反映"未来加文案"。
+> 3. 两轮测试结论一致（都是 Fusion 100% / Ark 缺字），所以这不是抽样偶然。
+
+### 3.3 字号规定
 
 | 用途 | 字号 | 理由 |
 |---|---|---|
-| 正文 / 数值 / HUD | **12px** | 640×360 下 12px 是中文可读下限；10px 笔画会糊 |
+| 正文 / 数值 / HUD | **12px** | 640×360 下中文可读下限；10px 笔画会糊 |
 | 标题 / 弹窗标题 | **16px** | 与 16px 图块栅格同源，位置对齐 |
 | 极窄辅助（物品数量角标） | 10px（**仅在必要时**） | 需实测，不优先 |
 
-**缺字的处理方式（必须在上线前做完）**：
-1. `data/locale/strings.csv` 定稿后，跑一遍**全量扫字**——检查每一个用到的汉字在字体里是否存在；
-2. 缺字会显示成豆腐块 `□`，**没有任何自动化门禁能查**，只能肉眼过一遍（`strings.csv` 归表现组包 D，扫字归美术组）。
+### 3.4 缺字的处理流程（`strings.csv` 每次定稿后跑）
 
-**备选**：缝合像素字体 Fusion Pixel Font（同样像素中文，覆盖更全）。**它的 license 我尚未核实**——若老板选它，我先核授权再进包。
+```bash
+python tools/check_font_coverage.py \
+  --csv data/locale/strings.csv \
+  --font assets/fonts/font_fusion_pixel_12px_zh_hans.ttf \
+  --font assets/fonts/font_fusion_pixel_12px_zh_tw.ttf
+```
+
+退出码非 0 = 有缺字，并直接列出缺哪几个字。
+
+- 纯标准库实现（不依赖 fontTools），解析 sfnt 的 `cmap` 表（format 4 / 12）
+- 语料**按列**分别统计：`zh_CN` 列的字要在 hans 字体里存在，`zh_TW` 列的字要在 zh_tw 字体里存在
+- `--gb2312-l1` 改用 3716 个常用字评估字体自身广度（选型阶段用）
+- Godot 侧另有实机验证 `build/art_proof/check_font.gd`：证明 TextServer 真能出字形，
+  而不只是"cmap 里有映射"。两者缺一个都不算过
+- 运行时已用 `allow_system_fallback=false` 锁死：缺字会显示 `.notdef` 方框而**不会**静默回退到系统字体，
+  所以本门禁的结论是可信的（这条很关键，否则开发机有字库会把问题焊死）
 
 ---
 
@@ -115,9 +147,13 @@
 
 | 资产 | 来源 | 授权 | 核实状态 | 日期 |
 |---|---|---|---|---|
-| DB32 色板（32 色值） | Lospec / Aseprite 内置预设；与 Hugging Face `palettes.json` 交叉核对，色值完全一致 | 社区长期免费使用 | ⚠ **权威授权文本未取得** → 见 §5 U2 | 2026-10-19 |
+| DB32 色板（32 色值） | Lospec / Aseprite 内置预设；与 Hugging Face `palettes.json` 交叉核对，色值完全一致 | 社区长期免费使用 | ✅ 老板核准接受惯例（U2 结案） | 2026-10-19 |
 | `ui_palette_db32.png` | 由上述色值**程序化生成**（32×16，非第三方素材） | 本项目自产 | ✅ 无外部依赖 | 2026-10-19 |
-| 方舟像素字体 Ark Pixel Font | TakWolf | SIL OFL 1.1 | ⚠ 授权明确，但**仓库地址待核对**（检索返回的是镜像页）+ **缺字已确认** | 未下载 |
+| **Fusion Pixel Font 12px** | TakWolf/fusion-pixel-font，release `2026.10.16` | **SIL OFL 1.1**（`assets/_licenses/fusion_pixel_font_OFL_1.1.txt`） | ✅ 已入包，md5 与上游逐字节一致，零缺字 | 2026-10-21 |
+| ├ 上游 · Ark Pixel | TakWolf/ark-pixel-font | SIL OFL 1.1（`fusion_pixel_upstream_ark_pixel_OFL.txt`） | ✅ 已归档 | 2026-10-21 |
+| ├ 上游 · Cubic 11 | ACh-K/Cubic-11 | SIL OFL 1.1（`fusion_pixel_upstream_cubic_11_OFL.txt`） | ✅ 已归档 | 2026-10-21 |
+| └ 上游 · Galmuri | Lee Minseo / quiple | SIL OFL 1.1（`fusion_pixel_upstream_galmuri_OFL.txt`） | ✅ 已归档 | 2026-10-21 |
+| 方舟像素字体 Ark Pixel（单独使用） | TakWolf | SIL OFL 1.1 | ❌ **已评估、未采用**：GB2312 一级字缺 147（见 §3.2） | 2026-10-21 |
 
 ### 4.2 登记模板（后续每批照抄）
 
@@ -132,30 +168,52 @@
 核对人：
 ```
 
-> 建议同步建 `assets/_licenses/` 存放许可证原文与加购凭证截图。
-> ⚠ 该目录不在任务书 §3 白名单内，且里面会放**非 PNG** 文件——**需老板核准后我才建**。
+> ✅ 已建 `assets/_licenses/`（2026-10-21 核准），存放许可证原文与加购凭证截图。
+> 当前内含 4 份 OFL 文本；后续每笔采购的加购凭证照 `资产名_凭证.png` 归档于此。
 
 ---
 
-## 5. 待核实 / 待拍板
+## 5. 结案记录（2026-10-21）
 
-| # | 事项 | 影响 | 我的建议 |
+**老板裁决原话**：「U2 接受惯例、U3 保素材、U4 都建、两个文件都留、字体按 OFL 引进」
+
+| # | 事项 | 结论 | 处置 |
 |---|---|---|---|
-| **U1** | **Ark Pixel 缺字** —— 中文字体是 S6 一票否决项 | 界面出现豆腐块 | 两条路：① 用它 + 上线前全量扫字，缺的字手补；② 换缝合像素字体。需老板定案 |
-| **U2** | **DB32 的权威商用授权文本未取得** | 色板本身的法务地位 | 色值是客观数值，业界长期免费使用；但我不想给你一个没核实过的承诺。接受则沿用，不接受我重找一个明确 CC0 的色板 |
-| **U3** | 是否建 `assets/_licenses/` 存放授权凭证 | 上架查证效率 | 建议建，成本低。待核准 |
-| **U4** | 是否需要 `assets/import_presets/` 统一导入预设 | 架构 §7.3 明确要求，否则后改要重导全部美术 | 建议做（成本低），待核准 |
+| **U1** | 中文字体 | ✅ **Fusion Pixel 按 OFL 引进** | 4 份授权归档 + 两个 ttf 入包 + 零缺字双重验证 |
+| **U2** | DB32 授权 | ✅ **接受社区惯例** | 沿用。补充依据：LUT 是程序生成的，不含第三方素材 |
+| **U3** | UI 底板形态 | ✅ **保留像素素材** | `StyleBoxFlat` 仅调试面板 |
+| **U4** | 目录 | ✅ **都建** | `assets/_licenses/` + `assets/import_presets/` 已建，后者带参数规格与门禁 |
+| — | `asset_sourcing.md` | ✅ **保留** | 白名单核准通过 |
+| — | `build/art_proof/` | ✅ **入库** | 验收证据入库 |
+
+## 5.1 本轮新增的两个工具（白名单外，已随核准保留）
+
+| 工具 | 用途 |
+|---|---|
+| `tools/check_font_coverage.py` | S6 缺字门禁。纯标准库解析 cmap，按列统计缺字 |
+| `tools/check_import_presets.py` | 导入参数门禁（架构 §7.3）。校验所有 `.import` 的 `[params]` 与规格一致 |
+
+> 两者都用退出码表达结论，可直接接 CI。与 `check_assets.py` 并列，构成美术侧三道门禁。
 
 ---
 
-## 6. 第一批交付清单
+## 6. 第一批交付清单（2026-10-21 全部闭环）
 
 | 文件 | 说明 | 门禁 |
 |---|---|---|
-| `docs/style_contract.md` | 准入门槛，六条风格条款 + UI 件规格 | 人工 |
-| `assets/shaders/palette_map.gdshader` | 色板统一 shader（优先级最高交付） | 需 Godot 实机跑 A/B 对比 |
-| `assets/sprites/ui/ui_palette_db32.png` | DB32 LUT，32×16，32 色 | ✅ `check_assets.py` 通过 |
-| `docs/asset_sourcing.md` | 本文件 | 需老板核准保留 |
+| `docs/style_contract.md` | 准入门槛：六条风格条款 + UI 件规格 + 四本实测记录 | 人工 |
+| `assets/shaders/palette_map.gdshader` | 色板统一 shader（优先级最高交付） | ✅ Godot 4.3 实机解析通过 + A/B 对比图 |
+| `assets/sprites/ui/ui_palette_db32.png` | DB32 LUT，32×16，32 色 | ✅ `check_assets.py` |
+| `assets/fonts/font_fusion_pixel_12px_zh_hans.ttf` | 简体中文像素字体 12px | ✅ 零缺字 + Godot 实机渲染 |
+| `assets/fonts/font_fusion_pixel_12px_zh_tw.ttf` | 繁体中文像素字体 12px | ✅ 零缺字 + Godot 实机渲染 |
+| `assets/_licenses/`（4 份） | OFL 授权原文，Steam 上架查证用 | 人工 |
+| `assets/import_presets/README.md` | 导入参数规格（架构 §7.3） | ✅ `check_import_presets.py` |
+| `tools/check_font_coverage.py` | S6 缺字门禁 | 自验 |
+| `tools/check_import_presets.py` | 导入参数门禁 | 自验 |
+| `build/art_proof/` | 验收对比图 + 3 个可复跑验证脚本 | 人工看 |
+| `docs/asset_sourcing.md` | 本文件 | ✅ 老板核准保留 |
 
 **验收方式（任务书 §4）**：两张来源不同的精灵图，开/关 shader（`mix_strength` 0 ↔ 1）各截一张并排。
-⚠ **此项当前无法自验**——`assets/` 里还没有第二张精灵图可对比。需要老板提供一个素材样本，或等 MVP 批素材到位后才能做真正的并排验收。
+✅ **已自验完成**——用程序构造的两张色相相反的测试精灵（暖色 / 冷色）做对比，
+见 `build/art_proof/palette_map_ab_compare.png`：映射后越界色 0、两张描边统一为 `#222034`、
+羽化脏边被清掉 178 px。**仍需老板肉眼确认一次**（"看得出是两个来源 = 未过"这条只有人能判）。
