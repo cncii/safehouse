@@ -55,9 +55,9 @@ func travel_cost(from: StringName, to: StringName) -> float:
 	if from == to:
 		return 0.0
 	for e: Dictionary in _edges:
-		var a := String(e.get("from", ""))
-		var b := String(e.get("to", ""))
-		if (a == String(from) and b == String(to)) or (a == String(to) and b == String(from)):
+		var a := str(e.get("from", ""))
+		var b := str(e.get("to", ""))
+		if (a == str(from) and b == str(to)) or (a == str(to) and b == str(from)):
 			return float(e.get("travel_cost_gh", 0.0))
 	return -1.0
 
@@ -67,10 +67,10 @@ func neighbors(node_id: StringName) -> Array:
 	_ensure_loaded()
 	var out: Array = []
 	for e: Dictionary in _edges:
-		if String(e.get("from", "")) == String(node_id):
-			out.append(String(e.get("to", "")))
-		elif String(e.get("to", "")) == String(node_id):
-			out.append(String(e.get("from", "")))
+		if str(e.get("from", "")) == str(node_id):
+			out.append(str(e.get("to", "")))
+		elif str(e.get("to", "")) == str(node_id):
+			out.append(str(e.get("from", "")))
 	return out
 
 
@@ -92,15 +92,15 @@ func is_reachable(from: StringName, to: StringName) -> bool:
 ## loot_points 每项内联该点掉落内容——世界快照因此是布局的确定函数。
 func generate_layout(node_id: StringName, day: int) -> Dictionary:
 	_ensure_loaded()
-	var node: Dictionary = _nodes.get(String(node_id), {})
+	var node: Dictionary = _nodes.get(str(node_id), {})
 	if node.is_empty():
 		return {}
-	var theme_id := String(node.get("theme_id", ""))
+	var theme_id := str(node.get("theme_id", ""))
 	var theme: Dictionary = _themes.get(theme_id, {})
 	if theme.is_empty():
 		return {}
 	return {
-		"node_id": String(node_id),
+		"node_id": str(node_id),
 		"day": day,
 		"theme_id": theme_id,
 		"rooms": _build_rooms(node_id, day, theme),
@@ -117,7 +117,7 @@ func _build_rooms(node_id: StringName, day: int, theme: Dictionary) -> Array:
 	var rooms: Array = []
 	for i in room_count:
 		var h := Rng.mix64(Rng.hash_at(&"FLAVOR", day,
-			PackedStringArray([String(node_id), "room", str(i)])))
+			PackedStringArray([str(node_id), "room", str(i)])))
 		rooms.append({
 			"id": "r%d" % i,
 			"grid_x": i % 4,
@@ -138,7 +138,7 @@ func _build_loot_points(node_id: StringName, day: int, theme: Dictionary) -> Arr
 	for i in point_count:
 		var point_id := "lp%d" % i
 		var h := Rng.mix64(Rng.hash_at(&"FLAVOR", day,
-			PackedStringArray([String(node_id), "point", point_id])))
+			PackedStringArray([str(node_id), "point", point_id])))
 		points.append({
 			"id": point_id,
 			"room_id": "r%d" % (i % maxi(room_count(theme), 1)),
@@ -159,12 +159,12 @@ func _build_loot_points(node_id: StringName, day: int, theme: Dictionary) -> Arr
 ## 本函数**无状态**——签名里没有"第几次开箱"，这是 P16 成立的结构前提。
 func loot_point(loc_id: StringName, point_id: StringName, day: int) -> Array:
 	_ensure_loaded()
-	var table: Array = _loot.get(_theme_of(String(loc_id)), [])
-	var total := float(_loot_total.get(_theme_of(String(loc_id)), 0.0))
+	var table: Array = _loot.get(_theme_of(str(loc_id)), [])
+	var total := float(_loot_total.get(_theme_of(str(loc_id)), 0.0))
 	if table.is_empty() or total <= 0.0:
 		return []
 	var h := Rng.hash_at(&"LOOT", day,
-		PackedStringArray([String(loc_id), String(point_id)]))
+		PackedStringArray([str(loc_id), str(point_id)]))
 	# 低位定条目（权重抽取）
 	var roll := float(absi(h) % 1000000) / 1000000.0 * total
 	var acc := 0.0
@@ -177,7 +177,7 @@ func loot_point(loc_id: StringName, point_id: StringName, day: int) -> Array:
 
 ## 数量区间：用再混一次的值定数量，与条目选择不共用位段，避免同一条永远同一数
 func _roll_count(entry: Dictionary, h: int) -> Array:
-	var item_id := String(entry.get("item_id", ""))
+	var item_id := str(entry.get("item_id", ""))
 	if not _item_ids.has(item_id):
 		return []          # 悬空引用 → 不产出，别让不存在的物品进背包
 	var lo := int(entry.get("entry_min_count", 0))
@@ -199,13 +199,37 @@ func _roll_count(entry: Dictionary, h: int) -> Array:
 ## 每日至多回填一次（hash_at 是 day 的纯函数，天然不会一天命中两次）。
 func is_refilled(node_id: StringName, day: int) -> bool:
 	_ensure_loaded()
-	var node: Dictionary = _nodes.get(String(node_id), {})
+	var node: Dictionary = _nodes.get(str(node_id), {})
 	if node.is_empty() or not bool(node.get("high_freq", false)):
 		return false
 	if day < int(node.get("refill_from_day_count", 9999)):
 		return false
-	var h := Rng.hash_at(&"REFILL", day, PackedStringArray([String(node_id), "refill"]))
+	var h := Rng.hash_at(&"REFILL", day, PackedStringArray([str(node_id), "refill"]))
 	return int(absi(h) % 3) == 0   # 约 1/3 命中（PROVISIONAL，见 UNDEFINED.md D-003）
+
+
+## 跨日刷新「待回填」清单。**由每日 05:00 的跨日结算调用**（TimeSystem 的 day rollover）。
+## 命中回填的高频地点进 _pending_refills，回填代数 +1；没命中的从清单里移除。
+## 玩家进该地点时消费掉这次回填（mark_visited 里移除）。
+##
+## 为什么「回填后货架内容会变」不需要额外机制：LOOT 的哈希键是
+## [loc_id, point_id]，而**跨天时 day 本身就变了** → 哈希变 → 内容变。
+## （同一天内的二次回填不换内容——那要不要换，属未定义，缺数 D-B08。）
+func refresh_refills(day: int) -> void:
+	_ensure_loaded()
+	var next := PackedStringArray()
+	for node_id: String in _nodes:
+		if not is_refilled(StringName(node_id), day):
+			continue
+		next.append(node_id)
+		var sec := _location_sec(node_id)
+		sec["refill_generation"] = int(sec.get("refill_generation", 0)) + 1
+	_pending_refills = next
+
+
+## 当前待回填（玩家还没去）的地点
+func pending_refills() -> PackedStringArray:
+	return _pending_refills.duplicate()
 
 
 # ════════════════════════════════════════════════════════════════
@@ -220,7 +244,7 @@ const _Store = preload("res://src/core/state_store.gd")
 ## refill_generation）与 pending_refills 是容器型，存本地，不进 contract。
 func to_save() -> Dictionary:
 	return {
-		"current_node": String(State.read("map.current_node")),
+		"current_node": str(State.read("map.current_node")),
 		"unlocked_nodes": _unlocked_nodes(),
 		"locations": _locations.duplicate(true),
 		"pending_refills": Array(_pending_refills),
@@ -240,7 +264,7 @@ func from_save(snap: Dictionary) -> void:
 			}
 	_pending_refills = _to_string_array(snap.get("pending_refills", []))
 	var cs := _Store.ChangeSet.new(&"map_system", "load map progress")
-	cs.setv("map.current_node", String(snap.get("current_node", "")))
+	cs.setv("map.current_node", str(snap.get("current_node", "")))
 	cs.setv("map.unlocked_nodes", _to_string_array(snap.get("unlocked_nodes", [])))
 	State.apply(cs)
 
@@ -250,23 +274,29 @@ var _locations: Dictionary = {}       # node_id -> {visited_days[], looted[], re
 var _pending_refills: PackedStringArray = PackedStringArray()
 
 func mark_visited(node_id: StringName, day: int) -> void:
-	var sec := _location_sec(String(node_id))
+	var sec := _location_sec(str(node_id))
 	var days: Array = sec["visited_days"]
 	if not days.has(day):
 		days.append(day)
+	# 玩家到了 = 这次回填被消费掉，从待回填清单里移除。
+	# 不移除的话，待回填清单会一直挂着同一个地点，UI 会一直提示"有货可捡"。
+	# （PackedStringArray 没有 erase()，用 find + remove_at）
+	var idx := _pending_refills.find(str(node_id))
+	if idx >= 0:
+		_pending_refills.remove_at(idx)
 
 
 func mark_looted(node_id: StringName, point_id: StringName) -> void:
-	var sec := _location_sec(String(node_id))
+	var sec := _location_sec(str(node_id))
 	var looted: Array = sec["looted"]
-	if not looted.has(String(point_id)):
-		looted.append(String(point_id))
+	if not looted.has(str(point_id)):
+		looted.append(str(point_id))
 
 
 func is_looted(node_id: StringName, point_id: StringName) -> bool:
-	var sec: Dictionary = _locations.get(String(node_id), {})
+	var sec: Dictionary = _locations.get(str(node_id), {})
 	var looted: Array = sec.get("looted", [])
-	return looted.has(String(point_id))
+	return looted.has(str(point_id))
 
 
 func _location_sec(node_id: String) -> Dictionary:
@@ -280,7 +310,7 @@ func _unlocked_nodes() -> PackedStringArray:
 	var out := PackedStringArray()
 	if typeof(raw) == TYPE_ARRAY or typeof(raw) == TYPE_PACKED_STRING_ARRAY:
 		for k: Variant in (raw as Array):
-			out.append(String(k))
+			out.append(str(k))
 	return out
 
 
@@ -296,7 +326,7 @@ func _to_string_array(v: Variant) -> PackedStringArray:
 	var out := PackedStringArray()
 	if typeof(v) == TYPE_ARRAY:
 		for x: Variant in (v as Array):
-			out.append(String(x))
+			out.append(str(x))
 	return out
 
 
@@ -324,9 +354,12 @@ func verify_determinism(reopen_count: int = 20) -> Dictionary:
 	var forward := _loot_sequence("supermarket", pts, probe_day, false)
 	var reverse := _loot_sequence("supermarket", pts, probe_day, true)
 	var p16_equal := 0
+	var p16_nonempty := 0
 	for p: String in pts:
 		if forward[p] == reverse[p]:
 			p16_equal += 1
+		if not (forward[p] as String).is_empty() and (forward[p] as String) != "[]":
+			p16_nonempty += 1
 
 	return {
 		"M9_reopen_total": reopen_count,
@@ -335,8 +368,69 @@ func verify_determinism(reopen_count: int = 20) -> Dictionary:
 		"M9b_day_separates": m9_day_separates,
 		"P16_points_total": pts.size(),
 		"P16_points_equal": p16_equal,
-		"P16_pass": p16_equal == pts.size(),
+		# 防空转护栏：P16 比的是「各点内容相等」。若所有点的内容都是空数组，
+		# 「相等」是平凡成立——判据等于没测。**必须有非空内容，这条判据才算数。**
+		"P16_nonempty_points": p16_nonempty,
+		"P16_pass": p16_equal == pts.size() and p16_nonempty > 0,
+		"REFILL_pending_count": _pending_refills.size(),
+		"REFILL_pass": _refill_roundtrip_ok(),
 	}
+
+
+## 回填闭环自检：05:00 刷新 → 待回填清单**恰好**等于当天的命中集合 → 玩家到了消费掉
+## → 存档往返不丢。
+## 这条判据抓的是「pending_refills 存了但没人写/没人清」——那种洞在 UI 上看不出来，
+## 只会表现为"提示说有货，去了没货"或"永远提示有货"。
+##
+## ⚠ 断言**不能建立在"随机恰好命中"上**：第 4 天起 4 个高频地点各 1/3 概率，
+##   一天全不中的概率约 20%——那种判据自己会随机红。
+##   所以这里比的是「清单 == is_refilled() 的集合」，不是「清单非空」。
+func _refill_roundtrip_ok() -> bool:
+	var save_pending := _pending_refills.duplicate()
+	var save_locations := _locations.duplicate(true)
+
+	# ① 连续 10 天：清单必须逐天等于当天的命中集合
+	var list_ok := true
+	for day in range(4, 14):
+		refresh_refills(day)
+		var expected := PackedStringArray()
+		for node_id: String in _nodes:
+			if is_refilled(StringName(node_id), day):
+				expected.append(node_id)
+		expected.sort()
+		var actual := _pending_refills.duplicate()
+		actual.sort()
+		if actual != expected:
+			list_ok = false
+		# ② 回填代数必须随命中次数递增
+		for node_id: String in _nodes:
+			var gen := int((_locations.get(node_id, {}) as Dictionary).get("refill_generation", 0))
+			var want := 0
+			for d in range(4, day + 1):
+				if is_refilled(StringName(node_id), d):
+					want += 1
+			if gen != want:
+				list_ok = false
+
+	# ③ 玩家到了第一个待回填地点 → 消费掉
+	var consumed := true
+	if _pending_refills.size() > 0:
+		var first := _pending_refills[0]
+		mark_visited(StringName(first), 13)
+		consumed = not _pending_refills.has(first)
+
+	# ④ 存档往返：待回填清单与回填代数都不能丢
+	var snap := to_save()
+	var gen_before := int((_locations.get("supermarket", {}) as Dictionary).get("refill_generation", 0))
+	_pending_refills = PackedStringArray()
+	_locations = {}
+	from_save(snap)
+	var gen_after := int((_locations.get("supermarket", {}) as Dictionary).get("refill_generation", 0))
+	var kept: bool = _pending_refills.size() == (snap.get("pending_refills", []) as Array).size()
+
+	_pending_refills = save_pending
+	_locations = save_locations
+	return list_ok and consumed and kept and gen_before == gen_after
 
 
 ## 世界快照签名：day + 节点集合 → 全部布局与掉落内容的序列化。
@@ -372,7 +466,7 @@ func room_count(theme: Dictionary) -> int:
 
 
 func _theme_of(loc_id: String) -> String:
-	return String((_nodes.get(loc_id, {}) as Dictionary).get("theme_id", ""))
+	return str((_nodes.get(loc_id, {}) as Dictionary).get("theme_id", ""))
 
 
 func _ensure_loaded() -> void:
@@ -384,9 +478,17 @@ func _ensure_loaded() -> void:
 	_edges = loc.get("edges", [])
 	_themes = _read_dict(_THEME_PATH)
 	_loot = _read_dict(_LOOT_PATH)
+	# ⚠ 只遍历**真正的主题表**（值是 Array 的键）。loot_tables.json 顶层还有
+	#   $schema_note / $provisional / _comment_p16 这些字符串键——一并遍历会在
+	#   `as Array` 处崩，**函数当场中断**，后面的 _loot_total 永远填不上，
+	#   loot_point() 于是恒返回空数组 → P16「各点内容相等」变成**全空数组的平凡相等**，
+	#   判据假绿。这是我自己的 bug，2026-10-21 由 P16 假绿倒查发现。
 	for theme_id: String in _loot:
+		var table: Variant = _loot[theme_id]
+		if typeof(table) != TYPE_ARRAY:
+			continue
 		var total := 0.0
-		for e: Dictionary in (_loot[theme_id] as Array):
+		for e: Dictionary in (table as Array):
 			total += float(e.get("entry_weight_ratio", 0.0))
 		_loot_total[theme_id] = total
 	var defs: Dictionary = _read_dict(_ITEMS_PATH).get("items", {})

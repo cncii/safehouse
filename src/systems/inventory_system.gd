@@ -58,7 +58,7 @@ func _register_persistence() -> void:
 
 ## 返回实际入包数（容量限制后）——P13 断言不许丢
 func add(item_id: StringName, count: int) -> int:
-	if count <= 0 or not _item_defs.has(String(item_id)):
+	if count <= 0 or not _item_defs.has(str(item_id)):
 		return 0
 	var room := capacity() - used()
 	var take := mini(room, count)
@@ -66,12 +66,12 @@ func add(item_id: StringName, count: int) -> int:
 		return 0
 	# 同 id 同耐久档的先叠，数量到上限再开新实例——满仓时也不产生碎片
 	for e: Dictionary in _items:
-		if String(e["item_id"]) == String(item_id) and e.get("durability", null) == null:
+		if str(e["item_id"]) == str(item_id) and e.get("durability", null) == null:
 			e["count"] = int(e["count"]) + take
 			return take
 	var inst := {
 		"instance_id": _next_seq,
-		"item_id": String(item_id),
+		"item_id": str(item_id),
 		"count": take,
 		"durability": null,
 	}
@@ -85,7 +85,7 @@ func consume(item_id: StringName, count: int) -> Dictionary:
 	var remaining := count
 	for i in range(_items.size() - 1, -1, -1):
 		var e: Dictionary = _items[i]
-		if String(e["item_id"]) != String(item_id):
+		if str(e["item_id"]) != str(item_id):
 			continue
 		var take := mini(int(e["count"]), remaining)
 		e["count"] = int(e["count"]) - take
@@ -103,7 +103,7 @@ func consume(item_id: StringName, count: int) -> Dictionary:
 ## 消耗品→四条状态增量。数值全部来自 survival.json，不在本文件硬写。
 func _effect_delta(item_id: StringName, n: int) -> Dictionary:
 	var f := float(n)
-	match String(item_id):
+	match str(item_id):
 		"item_food_can":
 			return {"hunger": _food_hunger_gain * f}
 		"item_water_bottle":
@@ -142,7 +142,7 @@ func capacity() -> int:
 func count_of(item_id: StringName) -> int:
 	var n := 0
 	for e: Dictionary in _items:
-		if String(e["item_id"]) == String(item_id):
+		if str(e["item_id"]) == str(item_id):
 			n += int(e["count"])
 	return n
 
@@ -186,11 +186,11 @@ func from_save(snap: Dictionary) -> void:
 		if typeof(e) != TYPE_DICTIONARY:
 			continue
 		var src: Dictionary = e
-		if not _item_defs.has(String(src.get("item_id", ""))):
+		if not _item_defs.has(str(src.get("item_id", ""))):
 			continue# 物品已下线：丢弃而不是把脏 id 写回内存
 		_items.append({
 			"instance_id": int(src.get("instance_id", 0)),
-			"item_id": String(src.get("item_id", "")),
+			"item_id": str(src.get("item_id", "")),
 			"count": maxi(int(src.get("count", 0)), 0),
 			"durability": src.get("durability", null),
 		})

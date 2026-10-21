@@ -271,7 +271,7 @@ func request_skip_to(target: Phase, has_bed: bool = false) -> bool:
 		return false                       # 跳夜目标只能是 PREP（次日清晨）
 	if not has_bed:
 		return false
-	if String(State.read("player.scene_id")) != "safehouse":
+	if str(State.read("player.scene_id")) != "safehouse":
 		return false                       # 必须在安全屋
 	mode = TimeMode.SCRIPTED
 	phase = Phase.EVENING

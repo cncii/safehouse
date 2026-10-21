@@ -28,8 +28,8 @@
 | D-006 | `map_system.loot_point()` | `loot_tables.json` 全部 `entry_weight_ratio` / `entry_min_count` / `entry_max_count` | **D8 食物/净水是否够**——背包基线与阶段 B 生存线的共同上游 | 创意总监 | P12、S7-b 的现实侧、M32 |
 | D-007 | 背包 | `items.json` 的 `weight_units` / `durability_units` / `effect` 引用 | 背包容量 24 格（P12 的分母）与"带得动多少零件" | 创意总监 | P12 / P13；随身物资取舍 |
 | D-014 | `inventory_system._effect_delta()` | `item_med_gauze` 的回血量（`effect` 引用）。survival.json 只定稿了食物/净水/能量棒三条效果，医疗包没定 | 决定"受伤后多久能回本"，直接影响野睡扣血后的容错 | 创意总监 | 阶段 B 医疗消耗闭合；`items.json` 的 effect 字段整体 |
-| D-015 | `tech_tree_system._complete_research()` | `tech_tree.json` 的 24 个节点**一个 `effects` 字段都没有**（只有 layer/cost_parts/research_gh/prereq）。设计基线 2.3 明明有「L3-1 雨水收集器→脏水 0.20→0.35/GH」这类解锁效果 | **科技树解一个节点，世界没有任何变化**——现在"研究完成"只是点亮一个 key。循环系统的 L3 收益目前只能靠手改 loop.json | 创意总监 | 科技树 24 节点的实际玩法价值；多周目解锁表 |
-| D-016 | `tech_tree_system.start_research()` | 扣零件的**落点未定**：零件是背包里的容器型物品（`item_parts`），但包 B 白名单禁止横向持有 InventorySystem 引用 | 科技研究能不能开工取决于零件够不够。**没定就没法做"零件不足时拒绝开研究"这条判据** | 架构 + 需求方（建议：`inventory.parts_count` 走数值型 contract，或指定一个注入式扣除回调） | 科技树开工前置校验；P12 背包基线 |
+| ~~D-015~~ → **D-B06** | `tech_tree_system._complete_research()` | `tech_tree.json` 的 24 个节点**一个 `effects` 字段都没有**（只有 layer/cost_parts/research_gh/prereq）。设计基线 2.3 明明有「L3-1 雨水收集器→脏水 0.20→0.35/GH」这类解锁效果 | **科技树解一个节点，世界没有任何变化**——现在"研究完成"只是点亮一个 key。循环系统的 L3 收益目前只能靠手改 loop.json | 创意总监 | 科技树 24 节点的实际玩法价值；多周目解锁表 |
+| ~~D-016~~ → **D-B07** | `tech_tree_system.start_research()` | 扣零件的**落点未定**：零件是背包里的容器型物品（`item_parts`），但包 B 白名单禁止横向持有 InventorySystem 引用 | 科技研究能不能开工取决于零件够不够。**没定就没法做"零件不足时拒绝开研究"这条判据** | 架构 + 需求方（建议：`inventory.parts_count` 走数值型 contract，或指定一个注入式扣除回调） | 科技树开工前置校验；P12 背包基线 |
 | D-008 | `map_system._build_rooms()` | 布局专用 RNG 子流。当前**借用 `FLAVOR`**（房间排布属呈现随机，不耦合玩法数值） | 若日后把 FLAVOR 派给他用，布局会跟着变——RNG 盐值表只许末尾追加，改不了旧值 | **架构总监**（追加 `LAYOUT` 盐值到 `data/rng_salts.json` 末尾） | 不阻塞，但**记账**：这是本轮唯一一次借用他人数值 |
 | D-009 | `map_system` 搜刮标记 | `state_contract.json` 缺 `map.looted_nodes`（已搜刮标记）与 `map.refilled_nodes`（回填状态）两条路径 | 搜过即打空是设计基线 2.6 明写的规则，**没有状态路径就存不进档** | 需求方 + 架构 + QA（三方过审，协作纪律 5） | ~~阻塞搜刮/回填的存档一致性~~ **已裁决（见下）** |
 | D-010 | P24 隐藏状态 | `locations.json` 缺"隐藏时遭遇率 -60%"的落点与作用范围 | P24 判据无判据对象 | 创意总监 | P24 |
@@ -90,3 +90,20 @@
 | D-016 | `src/systems/audio_system.gd` | 音频素材全套：`assets/audio/sfx/{alarm_hunger, alarm_thirst, heartbeat}.ogg`（循环）；**stock_warn.ogg（P20 库存预警一次性音效，W2 已接线，沿触发）**；任一 BGM（`assets/audio/bgm/`） | M 组"可听警报"判据代码侧已绿（ui_smoke 8 条断言），听感无法佐证；素材按 `<id>.ogg\|wav\|mp3` 约定路径落位后**零代码改动自动生效** | 老板 / 美术（素材包接入） | 音频判据的录屏佐证；试玩听感 |
 | D-017 | W2 块3 库存两级预警（`src/ui/hud/hud_loop_panel.gd` 着色 + `src/systems/audio_system.gd` 一次性音效） | `data/balance/survival.json` 缺 `stock_warn_yellow_days` / `stock_warn_red_days`（键名为表现组约定，可改定）。任务书 §4.3 判据表述"<2 天黄"按数值纪律**未抄进代码** | 阈值缺键 = 两级预警整体降级：面板不着色、audio 静默（ui_smoke 有降级断言）；键值落位**零代码改动生效** | 老板 / 数值组（键名 + 黄红两档天数） | 块3 黄→红演示与录屏佐证 |
 | D-018 | W2 块1"建造/停机瞬间三行"（任务书 §4.1 设施名 Lv 维度） | `data/facilities/facilities.json` 不存在（`loop_system.gd` 头注释引用它，目录为空） | 块1 降级为**链维度**报告（缺口/库存/耗尽天数由 `maintenance_urgency()` 同源导出，已实现）；设施名/等级/单设施产出无处可读 | 逻辑组 / 老板（设施清单数据源） | 设施级缺口报告演示 |
+
+---
+
+## 逻辑组专属缺数（编号带组前缀 `D-B`，避免与其它组撞号）
+
+> **为什么改用前缀编号**：本文件是多组共用的缺数清单，改前 D-015 / D-016 / D-009 各出现 2 次
+> （逻辑组与表现组各编各的号）。**缺数清单靠 ID 被引用，ID 一撞就失效**——
+> 引用"D-015"时没人说得清是哪一个。建议全表统一改成 `D-<组><序号>`（D-B01 / D-D01 / D-C01 / D-F01）。
+
+| # | 被谁需要 | 缺什么 | 影响什么 | 谁能定 | 阻塞什么 |
+|---|---|---|---|---|---|
+| D-B01 | `data/facilities/facilities.json` | 全部设施的**耐久上限**（`durability_max_hp`）。当前是占位值（生产类 100 / 主门 200 / 陷阱·路障 60） | 决定"设施什么时候坏"——门耐久直接决定夜战能不能守住 | 创意总监 | 设施耐久/修理的判据；门耐久与破防倒计时的关系 |
+| D-B02 | `loop_system._store_cap["MEDS"]` | **医疗包库存上限**。loop.json 只有 sample_store_cap_units(10)，语义不同；当前借用 10 是**占位不是定稿** | 医疗包囤积上限；阶段 B 医疗消耗闭合 | 创意总监 | MEDS 链的库存守恒判据 |
+| D-B03 | 循环存量 | **样本（生物样本）没有存量位置**。loop.json 有 `sample_store_cap_units: 10`、契约里只有 water/food/power/meds 四条 store 路径，样本无处可存 | 样本培养槽（L3）的产出无处落；「补料」维护动作（样本→菌床）没有输入 | 架构 + 需求方（需新增 `loop.store_samples_milli` 数值路径，或明确样本是背包物品） | L3 样本链；补料动作 |
+| D-B04 | 拆解台 | **拆解产出的零件落在哪里**。loop.json 有 `parts_store_cap_units: 20`，但契约里没有 `loop.store_parts_milli`；背包侧是容器型物品 `item_parts` | 拆解台产出无处落账；科技研究的扣零件也就无从谈起（与 D-016 同一个根因） | 架构 + 需求方 | 拆解→零件→科技 这条链的闭环 |
+| D-B05 | `loop_system.production_rate_milli(POWER)` | **电力是存量还是开关**。契约里有 `loop.store_power_milli`（整数），但 loop.json 没有 `power_store_cap_units`，也没说断电是"存量归零"还是"开关关闭" | 断电时全 L3 产出 ×50% 的痛感对不对；发电机加燃料的收益怎么算 | 创意总监 | 电力链；阶段 B 资源收支 |
+| D-B06 | `tech_tree.json` 24 节点 | **节点效果数据缺失**（无 `effects` 字段）。设计基线 2.3 有「L3-1 雨水收集器→脏水 0.20→0.35/GH」这类解锁效果，数据里没有 | **科技树解一个节点，世界没有任何变化**——科技线目前是空的 | 创意总监 | 科技树 24 节点的实际玩法价值；多周目解锁表 |

@@ -1,0 +1,112 @@
+{
+  "$schema_note": "屋内设施清单。**本文件只放别处没有的事实**——产出率/库存上限/维护间隔在 data/balance/loop.json（权威，改=设计变更）；设施升级门槛在 data/tech/tech_tree.json 的 facility_upgrade_gates；设施段的存档字段蓝图见 data/schema/save.schema.json 的 facilities._each。同一事实不许两处（架构 §18.2）。",
+  "$need_design": "标 $need_design 的字段是 PROVISIONAL 占位，缺数五格清单见 data/UNDEFINED.md（D-B01..D-B04）。**签字前这些值不构成「定稿数值」**。",
+  "$level_semantics": "生产类设施的等级上限取 data/balance/loop.json 的 facility_max_level_count（M31 判据读它，定稿不许动），本文件**不重复**该值；防御类设施等级恒为 1（不能升级，只能修理/装填），显式写出。",
+
+  "facility_ids": [
+    "water_filter", "mushroom_bed", "generator", "dismantle_bench", "medical_bench",
+    "door_main", "spike_trap", "barricade"
+  ],
+
+  "facilities": {
+    "water_filter": {
+      "kind": "production",
+      "display_key": "FAC_WATER_FILTER",
+      "store_res_key": "water",
+      "maintenance_action": "replace_filter_core",
+      "continuous_action_id": "clean_filter",
+      "breach_immune": false,
+      "dismantleable": true,
+      "durability_max_hp": 100,
+      "$need_design": "durability_max_hp 与所有设施的耐久上限均未定义（D-B01）"
+    },
+    "mushroom_bed": {
+      "kind": "production",
+      "display_key": "FAC_MUSHROOM_BED",
+      "store_res_key": "food",
+      "maintenance_action": "restock_samples",
+      "continuous_action_id": "restock_bed",
+      "breach_immune": false,
+      "dismantleable": true,
+      "durability_max_hp": 100,
+      "$need_design": "耐久上限同 D-B01"
+    },
+    "generator": {
+      "kind": "support",
+      "display_key": "FAC_GENERATOR",
+      "store_res_key": "power",
+      "maintenance_action": "add_fuel",
+      "continuous_action_id": "add_fuel",
+      "breach_immune": true,
+      "dismantleable": false,
+      "durability_max_hp": 100,
+      "$need_design": "耐久上限同 D-B01；**电力是存量还是开关也没定**（loop.json 只有 power_off_output_mult_pct，没有 power_store_cap_units）→ D-B05"
+    },
+    "dismantle_bench": {
+      "kind": "production",
+      "display_key": "FAC_DISMANTLE_BENCH",
+      "store_res_key": "parts",
+      "maintenance_action": "none",
+      "continuous_action_id": "dismantle",
+      "breach_immune": true,
+      "dismantleable": false,
+      "durability_max_hp": 100,
+      "$need_design": "耐久上限同 D-B01"
+    },
+    "medical_bench": {
+      "kind": "production",
+      "display_key": "FAC_MEDICAL_BENCH",
+      "store_res_key": "meds",
+      "maintenance_action": "none",
+      "continuous_action_id": "none",
+      "breach_immune": false,
+      "dismantleable": true,
+      "durability_max_hp": 100,
+      "$need_design": "耐久上限同 D-B01；**医疗包库存上限未定义**（D-B02，当前借用样本上限 10 是占位，语义不同）"
+    },
+    "door_main": {
+      "kind": "defense",
+      "display_key": "FAC_DOOR_MAIN",
+      "store_res_key": "",
+      "maintenance_action": "repair_door",
+      "continuous_action_id": "repair_door",
+      "breach_immune": true,
+      "dismantleable": false,
+      "level_max_count": 1,
+      "durability_max_hp": 200,
+      "$need_design": "耐久上限 200 是占位（D-B01）；修门耗时 1.5GH 见 continuous_action 覆盖表"
+    },
+    "spike_trap": {
+      "kind": "defense",
+      "display_key": "FAC_SPIKE_TRAP",
+      "store_res_key": "",
+      "maintenance_action": "reload_spike",
+      "continuous_action_id": "build_spike",
+      "breach_immune": false,
+      "dismantleable": true,
+      "level_max_count": 1,
+      "durability_max_hp": 60,
+      "$need_design": "耐久上限 60 是占位（D-B01）"
+    },
+    "barricade": {
+      "kind": "defense",
+      "display_key": "FAC_BARRICADE",
+      "store_res_key": "",
+      "maintenance_action": "none",
+      "continuous_action_id": "build_barricade",
+      "breach_immune": false,
+      "dismantleable": true,
+      "level_max_count": 1,
+      "durability_max_hp": 60,
+      "$need_design": "耐久上限 60 是占位（D-B01）"
+    }
+  },
+
+  "_comment_continuous_actions": "continuous_action.gd 覆盖 7 处持续动作：清滤芯(10s) / 手动滤水(36s) / 拆解(2GH分4段) / 修门(1.5GH) / 造陷阱(1GH) / 补装(0.5GH) / 路障(0.5GH)。设施表的 continuous_action_id 是设施与该抽象的绑定点；「手动滤水」是玩家动作不绑设施，故本表 8 个 id 对应 7 个动作里的 6 个。",
+
+  "_comment_gates": "设施升级门槛不在本文件：tech_tree.json 的 facility_upgrade_gates（filter_water_l2/l3、mushroom_bed_l2/l3 → unlock_workbench）是权威。本表若再加一份就会分叉。",
+
+  "_comment_store_caps": "库存上限不在本文件：loop.json 的 water/food/sample/parts_store_cap_units 是权威。**meds（医疗包）上限在 loop.json 里不存在**（D-B02）。",
+
+  "_comment_samples": "样本（生物样本）由 L3 科技「样本培养槽」产出，但没有对应设施条目——它不是可建造设施。当前 loop.store_* 契约里也没有 samples 资源（D-B03）。"
+}

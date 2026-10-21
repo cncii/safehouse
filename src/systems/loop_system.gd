@@ -39,6 +39,7 @@ const M32_LV2_MUST_BE_DEFICIT := true           # Lv2 产出 < 需求（不许�
 
 const _LOOP_PATH := "res://data/balance/loop.json"
 const _SURV_PATH := "res://data/balance/survival.json"
+const _FACILITIES_PATH := "res://data/facilities/facilities.json"
 const _Store = preload("res://src/core/state_store.gd")
 
 var _store_milli: Dictionary = { "WATER": 0, "FOOD": 0, "POWER": 0, "MEDS": 0 }
@@ -51,9 +52,15 @@ var _fueled := true              # 发电机有油
 var _filter_dirty := false       # 滤芯脏
 var _storage_upgraded := false   # 储物升级（上限 +50%）
 
+# ── 设施清单（data/facilities/facilities.json 载入；不再在代码里硬写 id 表）──
+var _facility_ids: PackedStringArray = PackedStringArray()
+var _facility_defs: Dictionary = {}     # facility_id -> def
+
 # ── 运行值（_load_balance 载入）──
 var _food_rate := [0.12, 0.19, 0.22]        # 每 GH，L1/L2/L3
 var _water_rate := [0.15, 0.20, 0.24]
+# MEDS 的上限在 loop.json 里**不存在**（医疗包上限未定义）——这里占位借用样本上限 10，
+# 语义不同，属占位不是定稿（缺数 D-B02）。别把它当权威。
 var _store_cap := { "WATER": 15, "FOOD": 12, "MEDS": 10 }
 var _overflow_cap_pct := 50.0
 var _overflow_eff_pct := 50.0
@@ -99,7 +106,7 @@ func production_rate(res: StringName) -> float:
 
 
 func production_rate_milli(res: StringName) -> int:
-	var r := String(res)
+	var r := str(res)
 	var base := 0.0
 	match r:
 		"WATER":
@@ -122,7 +129,7 @@ func production_rate_milli(res: StringName) -> int:
 ## 守恒口径：本函数是**唯一**写 _store_milli 的地方，存量变化 = 本次实际入账，
 ## 差额就是浪费——不做「先加后裁」，那样溢出量会凭空消失又凭空出现。
 func _deposit(res: StringName, amount_milli: int) -> void:
-	var r := String(res)
+	var r := str(res)
 	var cap_milli := _cap_milli(r)
 	if cap_milli <= 0:
 		return                                # 无上限类（POWER/MEDS 不设库存上限）
@@ -162,7 +169,7 @@ func maintenance_urgency() -> Dictionary:
 ## 只看存量会高估：产出 0 的链存量再高也在跌。
 func _chain_status(res: StringName, demand_per_day: float) -> Dictionary:
 	var rate_per_day := production_rate(res) * 24.0
-	var stock := float(_store_milli.get(String(res), 0)) / float(PROD_SCALE)
+	var stock := float(_store_milli.get(str(res), 0)) / float(PROD_SCALE)
 	var net := demand_per_day - rate_per_day
 	var days_left := INF
 	if net > 0.0:
@@ -180,7 +187,7 @@ func _chain_status(res: StringName, demand_per_day: float) -> Dictionary:
 
 ## 卡在哪一环：解锁 / 供电 / 滤芯 / 未解锁，四选一，UI 直接显示
 func _blocked_at(res: StringName) -> String:
-	var r := String(res)
+	var r := str(res)
 	if not bool(_unlocked.get(r, false)):
 		return "unlock"
 	if r == "POWER" and not _fueled:
@@ -284,30 +291,39 @@ const PERSIST_KEY := &"facilities"
 ## （锚点判据），所以这一条额外走 State 写，两处由 from_save 单点同步。
 func to_save() -> Dictionary:
 	var out := {}
-	for fid: String in _FACILITY_IDS:
+	for fid: String in _facility_ids:
+		var def: Dictionary = _facility_defs.get(fid, {})
+		var res := _res_of(fid)
+		var store_milli := 0
+		var store_cap := 0
+		if res != "":
+			store_milli = int(_store_milli.get(res, 0))
+			store_cap = _cap_milli(res)
 		out[fid] = {
-			"level": _level.get(_res_of(fid), 1),
+			"level": _level.get(res, 1) if res != "" else 1,
 			"state": "OK",
-			"durability": 100,
-			"running": bool(_unlocked.get(_res_of(fid), false)),
-			"store_milli": int(_store_milli.get(_res_of(fid), 0)),
-			"store_cap_milli": _cap_milli(_res_of(fid)),
+			"durability": int(def.get("durability_max_hp", 100)),
+			"running": bool(_unlocked.get(res, false)),
+			"store_milli": store_milli,
+			"store_cap_milli": store_cap,
 			"fuel": _fueled,
 			"filter_dirt": _filter_dirty,
 			"last_serviced_gh": _last_serviced_gh,
-			"breach_immune": ResolveOrder.BREACH_IMMUNE.has(fid),
-			"dismantleable": not ResolveOrder.BREACH_IMMUNE.has(fid),
+			"breach_immune": bool(def.get("breach_immune", false)),
+			"dismantleable": bool(def.get("dismantleable", true)),
 		}
 	out["dismantle_bench.progress_milli"] = _progress_milli
 	return out
 
 
 func from_save(snap: Dictionary) -> void:
-	for fid: String in _FACILITY_IDS:
+	for fid: String in _facility_ids:
 		var sec: Dictionary = snap.get(fid, {})
 		if sec.is_empty():
 			continue
 		var res := _res_of(fid)
+		if res == "":
+			continue
 		_level[res] = clampi(int(sec.get("level", 1)), 1, 3)
 		_unlocked[res] = bool(sec.get("running", true))
 		_store_milli[res] = maxi(int(sec.get("store_milli", 0)), 0)
@@ -322,21 +338,29 @@ func from_save(snap: Dictionary) -> void:
 		_progress_milli = 0
 
 
-const _FACILITY_IDS: PackedStringArray = [
-	"water_filter", "mushroom_bed", "generator", "dismantle_bench", "medical_bench",
-]
 const _PROGRESS_ANCHORS: PackedInt32Array = [0, 500, 1000, 1500, 2000]
 
 var _last_serviced_gh := 0.0
 
 
+## 设施 → 它在**循环存量**里占的资源。**由 data/facilities/facilities.json 的
+## store_res_key 决定**，不在代码里硬写映射表——设施表改了，代码不用改。
+## 返回 "" = 这件设施不占循环存量（防御类设施；拆解台的零件进**背包**不是循环存量，
+## 因为 state_contract 里没有 loop.store_parts_milli —— 缺数 D-B04）。
 func _res_of(facility_id: String) -> String:
-	match facility_id:
-		"water_filter", "medical_bench":
-			return "WATER" if facility_id == "water_filter" else "MEDS"
-		"mushroom_bed":
+	var def: Dictionary = _facility_defs.get(facility_id, {})
+	match str(def.get("store_res_key", "")):
+		"water":
+			return "WATER"
+		"food":
 			return "FOOD"
-	return "POWER"
+		"meds":
+			return "MEDS"
+		"power":
+			return "POWER"
+		"parts":
+			return ""
+	return ""
 
 
 # ════════════════════════════════════════════════════════════════
@@ -372,7 +396,7 @@ func verify_loop_balance() -> Dictionary:
 	var expect_days := (float(_store_milli.get("FOOD", 0)) / float(PROD_SCALE)) / _demand_food_per_day
 	out["P20_days_left"] = st.get("days_left", -99.0)
 	out["P20_pass"] = absf(float(st.get("days_left", -99.0)) - expect_days) <= 1.0 / 24.0 \
-		and String(st.get("blocked_at", "")) == "unlock"
+		and str(st.get("blocked_at", "")) == "unlock"
 	_unlocked["FOOD"] = true
 	_level["FOOD"] = save_level
 
@@ -380,7 +404,7 @@ func verify_loop_balance() -> Dictionary:
 	var immunes := ResolveOrder.BREACH_IMMUNE
 	out["P22_dismantle_immune"] = immunes.has("dismantle_bench")
 	out["P22_pass"] = out["P22_dismantle_immune"] \
-		and String(pick_breach_target(PackedStringArray(["dismantle_bench"]), 8, 7)) == ""
+		and str(pick_breach_target(PackedStringArray(["dismantle_bench"]), 8, 7)) == ""
 	return out
 
 
@@ -427,7 +451,7 @@ func _level_of(res: String) -> int:
 
 
 func _cap_milli(res: StringName) -> int:
-	var base := float(_store_cap.get(String(res), 0.0))
+	var base := float(_store_cap.get(str(res), 0.0))
 	if _storage_upgraded:
 		base *= 1.5
 	return int(round(base * float(PROD_SCALE)))
@@ -484,6 +508,27 @@ func _load_balance() -> void:
 	var derived: Dictionary = surv.get("derived", {})
 	_demand_food_per_day = float(derived.get("food_units_per_day", _demand_food_per_day))
 	_demand_water_per_day = float(derived.get("water_units_per_day", _demand_water_per_day))
+
+	_load_facilities()
+
+
+## 载入 data/facilities/facilities.json —— 设施清单与属性的唯一来源。
+## 代码里不再硬写设施 id 表：设施表改了，代码不用改。
+func _load_facilities() -> void:
+	var f := _read_dict(_FACILITIES_PATH)
+	if f.is_empty():
+		push_error("loop_system: %s missing - refuse boot" % _FACILITIES_PATH)
+		return
+	_facility_defs = f.get("facilities", {})
+	_facility_ids = PackedStringArray()
+	for fid: String in f.get("facility_ids", []):
+		_facility_ids.append(fid)
+	# 设施表与存量键的对齐自检：设施表改了但代码没跟上时，当场报出来
+	for fid: String in _facility_ids:
+		var def: Dictionary = _facility_defs.get(fid, {})
+		var res := _res_of(fid)
+		if res != "" and not _store_cap.has(res) and res != "POWER":
+			push_warning("loop_system: facility '%s' stores '%s' but no cap defined" % [fid, res])
 
 
 func _read_dict(path: String) -> Dictionary:

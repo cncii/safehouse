@@ -68,7 +68,7 @@ func _ready() -> void:
 
 ## 返回 {ok, missing: [语义key...], reason}——missing 为空却仍锁定 = UI 在骗人(P1.5 审核项)
 func check_unlock(node_key: StringName) -> Dictionary:
-	var key := String(node_key)
+	var key := str(node_key)
 	if not _nodes.has(key):
 		return {"ok": false, "missing": [], "reason": "unknown_node"}
 	var node: Dictionary = _nodes[key]
@@ -92,7 +92,7 @@ func check_unlock(node_key: StringName) -> Dictionary:
 
 ## 前置是否已满足（不含材料成本——成本在 start_research 里查）
 func is_unlocked(node_key: StringName) -> bool:
-	return String(node_key) in unlocked_keys()
+	return str(node_key) in unlocked_keys()
 
 
 ## P22-0 目录级守护：unlock_dismantle_bench.prereq_any_of 必须**恰好**等于全部 5 个 L1 key。
@@ -199,7 +199,7 @@ func _reachable_from_roots() -> Dictionary:
 
 ## 开始研究。前置不满足 / 已在研究别的 / 零件不足 / 未注入零件回调 → 一律拒绝。
 func start_research(node_key: StringName) -> bool:
-	var key := String(node_key)
+	var key := str(node_key)
 	if not _nodes.has(key):
 		return false
 	if researching_node() != "":
@@ -245,9 +245,9 @@ func research_tick(delta_gh: float) -> void:
 
 func _complete_research(node_key: StringName) -> void:
 	var keys := unlocked_keys()
-	if not keys.has(String(node_key)):
-		keys.append(String(node_key))
-	var cs := _Store.ChangeSet.new(&"tech_tree_system", "unlock %s" % String(node_key))
+	if not keys.has(str(node_key)):
+		keys.append(str(node_key))
+	var cs := _Store.ChangeSet.new(&"tech_tree_system", "unlock %s" % str(node_key))
 	cs.setv("tech.unlocked", keys)
 	cs.setv("tech.researching", "")
 	State.apply(cs)
@@ -255,7 +255,7 @@ func _complete_research(node_key: StringName) -> void:
 	# 节点效果：只有节点真的带 effects 才交给 EffectSink 落地。
 	# ⚠ 当前 24 个节点**一个 effects 字段都没有**（缺数 D-015）——所以这条路径
 	#   现在不会触发。留着是为了效果表补上后不用改代码结构。
-	var effects: Array = (_nodes.get(String(node_key), {}) as Dictionary).get("effects", [])
+	var effects: Array = (_nodes.get(str(node_key), {}) as Dictionary).get("effects", [])
 	if not effects.is_empty() and _sink != null:
 		_sink.resolve(effects, &"effect_sink")
 	research_completed.emit(node_key)
@@ -293,15 +293,15 @@ func from_save(snap: Dictionary) -> void:
 	_cost_multiplier = float(snap.get("cost_multiplier", 1.0))
 	_blueprints = PackedStringArray()
 	for b: Variant in snap.get("blueprints", []):
-		_blueprints.append(String(b))
+		_blueprints.append(str(b))
 	_research_points_milli = 0
 	var node_key := ""
 	var r: Variant = snap.get("researching", null)
 	if typeof(r) == TYPE_DICTIONARY:
-		node_key = String((r as Dictionary).get("node_key", ""))
+		node_key = str((r as Dictionary).get("node_key", ""))
 		_research_points_milli = int((r as Dictionary).get("points_done_milli", 0))
 	elif typeof(r) == TYPE_STRING:
-		node_key = String(r)
+		node_key = str(r)
 	var cs := _Store.ChangeSet.new(&"tech_tree_system", "load tech progress")
 	cs.setv("tech.unlocked", unlocked_keys_from(snap))
 	cs.setv("tech.researching", node_key)
@@ -328,19 +328,19 @@ func unlocked_keys() -> PackedStringArray:
 	var out := PackedStringArray()
 	if typeof(raw) == TYPE_ARRAY or typeof(raw) == TYPE_PACKED_STRING_ARRAY:
 		for k: Variant in (raw as Array):
-			out.append(String(k))
+			out.append(str(k))
 	return out
 
 
 func researching_node() -> String:
 	var raw: Variant = State.read("tech.researching")
-	return String(raw) if typeof(raw) == TYPE_STRING else ""
+	return str(raw) if typeof(raw) == TYPE_STRING else ""
 
 
 func unlocked_keys_from(snap: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
 	for k: Variant in snap.get("unlocked", []):
-		out.append(String(k))
+		out.append(str(k))
 	return out
 
 
