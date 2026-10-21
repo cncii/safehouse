@@ -50,6 +50,10 @@ const TechTests = preload("res://tests/test_tech.gd")
 const EventTests = preload("res://tests/test_events.gd")
 const LoopTests = preload("res://tests/test_loop.gd")
 const ActionTests = preload("res://tests/test_action.gd")
+# 逻辑组两个自检的接线（包 B 2026-10-21）：判据本体在 inventory_system.gd /
+# tech_tree_system.gd，接线文件由逻辑组补（包 F 若要归档可整体移入其分域机制）。
+const InventoryTests = preload("res://tests/test_inventory.gd")
+const TechRuntimeTests = preload("res://tests/test_tech_runtime.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
 # 修订 #1：vitals 段 8 条（M2 死钟/M2b/M3/M3b/M4×4）随场景方式修通，75 → 83。
@@ -182,6 +186,11 @@ func _ready() -> void:
 	EventTests.run(self)
 	LoopTests.run(self)
 	ActionTests.run(self)
+	# ── 逻辑组补接线（2026-10-21）：背包容量守恒 / 科技树运行期 ──
+	# 放在 TechTests/LoopTests 之后：科技树的解锁会改全局 State，
+	# 排在后面可避免影响其它域的前置检查（State 是 autoload，全局共享）。
+	InventoryTests.run(self)
+	TechRuntimeTests.run(self)
 
 	_finish()
 

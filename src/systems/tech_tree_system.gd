@@ -384,15 +384,55 @@ func verify_tech_tree() -> Dictionary:
 	if ok_start:
 		var node: Dictionary = _nodes.get("unlock_water_basic", {})
 		var gh := float(node.get("research_gh", 0))
-		research_tick(gh - 0.5)
-		out["research_not_done_early"] = researching_node() != ""
-		research_tick(0.5)
+		var total_milli := int(round(gh * float(POINTS_MILLI)))
+
+		# ⚠ 边界必须测「**只差 1 milli**」，不能测「差 0.5 GH」。
+		#   第一版写 research_tick(gh - 0.5)，而变异体是"提前 10% 解锁"——
+		#   10% 的总时长远大于 0.5 GH，判据照样绿（实测 research_pass 仍 true）。
+		#   **边界判据要贴着判据想抓的那个性质去选点**，不是随便取个"未到期"的值。
+		research_tick((float(total_milli) - 1.0) / float(POINTS_MILLI))
+		out["research_not_done_1milli_short"] = researching_node() != ""
+		out["research_not_early"] = out["research_not_done_1milli_short"]
+
+		# 补满最后 1 milli → 立刻完成并解锁
+		research_tick(1.0 / float(POINTS_MILLI))
 		out["research_done"] = researching_node() == ""
 		out["research_unlocked"] = is_unlocked(&"unlock_water_basic")
-		out["research_pass"] = out["research_done"] and out["research_unlocked"]
+		out["research_pass"] = bool(out["research_not_done_1milli_short"]) \
+			and bool(out["research_done"]) and bool(out["research_unlocked"])
+
+		# ── 第二条独立用例：90% 不得解锁（抓"提前解锁"类变异）──
+		# ⚠ 必须换一个节点：State 是全局的，第一个节点此时已解锁，
+		#   再 start_research 会被"已解锁"拒掉（实测第二次返回 false）。
+		#   换一个无前置的 L1 节点跑，这条用例才真的在测"提前解锁"。
+		_reset_research_for_probe()
+		var node2: Dictionary = _nodes.get("unlock_torch", {})
+		var gh2 := float(node2.get("research_gh", 0))
+		if start_research(StringName("unlock_torch")):
+			research_tick(gh2 * 0.9)
+			out["research_90pct_not_done"] = researching_node() != ""
+			research_tick(gh2 * 0.1)
+			out["research_100pct_done"] = researching_node() == ""
+			out["research_torch_unlocked"] = is_unlocked(&"unlock_torch")
+			out["research_boundary_pass"] = bool(out["research_90pct_not_done"]) \
+				and bool(out["research_100pct_done"]) and bool(out["research_torch_unlocked"])
+		else:
+			out["research_90pct_not_done"] = false
+			out["research_100pct_done"] = false
+			out["research_torch_unlocked"] = false
+			out["research_boundary_pass"] = false
 	else:
 		out["research_pass"] = false
+		out["research_boundary_pass"] = false
 	return out
+
+
+## 自检用：清掉研究状态，好把研究流程重跑一遍（不碰存档段）
+func _reset_research_for_probe() -> void:
+	_research_points_milli = 0
+	var cs := _Store.ChangeSet.new(&"tech_tree_system", "probe reset research")
+	cs.setv("tech.researching", "")
+	State.apply(cs)
 
 
 func _fake_parts_gate(cost: int) -> bool:
