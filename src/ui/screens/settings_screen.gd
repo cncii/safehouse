@@ -106,6 +106,8 @@ func _on_lang_selected(index: int) -> void:
 	if code == Localize.get_lang():
 		return
 	Localize.set_lang(code)
+	# 像素字体随语言切换：zh_TW 用繁体字形（简体版缺繁体字），其余用简体版
+	UITheme.retint_lang(get_tree(), code)
 	_refresh_whole_ui()
 	Logger.log("ui", "language_changed", "", 0, code)
 

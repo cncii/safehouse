@@ -30,7 +30,10 @@ const COLOR_CRITICAL := Color(0.88, 0.28, 0.24, 1.0)
 const COLOR_TEXT := Color(0.92, 0.93, 0.95, 1.0)
 
 # ── 几何（内部分辨率 640×360，全部为整数，禁止小数缩放）──
-const FONT_SIZE := 8
+# FONT_SIZE 必须是像素字体原生尺寸的整数倍（Fusion Pixel 12px，见 ui_theme.gd）——
+# 非整数倍会把位图字形落在半像素上（模糊/粗细不一）。曾是 8（默认字体时代灰盒值），
+# 接像素字体后改 12（原生），S5 重跑验证布局。
+const FONT_SIZE := 12
 const LABEL_W := 40.0
 const VALUE_W := 30.0
 const BAR_W := 112.0

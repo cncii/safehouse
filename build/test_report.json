@@ -1,10 +1,10 @@
 ﻿{
-    "generated_at":  "2026-10-20T12:03:20.8626646+08:00",
+    "generated_at":  "2026-10-21T13:45:40.9130920+08:00",
     "stages":  [
                    {
                        "ok":  true,
                        "name":  "1 数据校验",
-                       "asserts":  6
+                       "asserts":  7
                    },
                    {
                        "ok":  true,
@@ -12,7 +12,7 @@
                        "asserts":  4
                    },
                    {
-                       "ok":  false,
+                       "ok":  true,
                        "name":  "2b 编译普查",
                        "asserts":  1
                    },
@@ -22,10 +22,9 @@
                        "asserts":  1
                    },
                    {
-                       "ok":  false,
+                       "ok":  true,
                        "name":  "4 无头单测",
-                       "asserts":  0,
-                       "note":  "not_effective: godot missing"
+                       "asserts":  130
                    },
                    {
                        "ok":  true,
@@ -33,5 +32,5 @@
                        "asserts":  4
                    }
                ],
-    "total_asserts":  15
+    "total_asserts":  147
 }

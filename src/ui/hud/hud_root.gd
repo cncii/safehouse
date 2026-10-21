@@ -32,10 +32,12 @@ func _build() -> void:
 	var vitals := HudVitals.new()
 	panel.add_child(vitals)
 
-	# W2：三块硬 UI（瞬间报告 + 链状态面板 + 两级预警）挂同根，共享一套分辨率适配
+	# W2：三块硬 UI（瞬间报告 + 链状态面板 + 两级预警）挂同一列，流式排布。
+	# 曾绝对定位 y=70——clock+vitals 的实际高度（默认字体时代）就已越 70，
+	# 与 vitals 底部重叠（S5 只查视口越界不查重叠，故一直没红）；像素字体
+	# 行高更高会放大重叠 → 改为进同一 VBox，高度变化自适应。
 	var loop_panel := HudLoopPanel.new()
-	loop_panel.position = Vector2(HudStyle.PANEL_PAD, HudStyle.PANEL_PAD + 64.0)
-	add_child(loop_panel)
+	panel.add_child(loop_panel)
 
 	# W4：音频警报随 HUD 生命周期（纯消费者，只读订阅 State）
 	add_child(AudioSystem.new())

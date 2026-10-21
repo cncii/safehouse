@@ -37,3 +37,5 @@ func _ready() -> void:
 	# SceneRouter.goto("main_menu")  ← 待 UI 包接入
 	# 应用已保存键位（S6）：profile.keybinds → InputMap。UI 包（表现组）接线。
 	KeybindSettings.apply_saved()
+	# 全项目像素字体装配（S5）：root Window.theme，切场景不丢、不改 project.godot
+	UITheme.install(get_tree(), Localize.get_lang())
