@@ -1,0 +1,16 @@
+{
+  "$schema_note": "状态效果（buff）定义表。状态效果是容器型状态（数组 [{id, stacks, expires_at_gh}]），落盘形态见 data/schema/save.schema.json 的 player 段 status_effects。数值唯一来源，禁止在代码里硬写。",
+  "$provisional": "本文件全部数值为 PROVISIONAL——结构可用、数值待设计侧定稿（缺数 D-B09/D-B10，见 data/UNDEFINED.md）。设计基线只给了落盘结构（架构 §5.2 status_effects 字段），没给任何出血数值。",
+  "_comment_units": "键名一律带单位后缀（M28-a）：_hp=血量点 / _gh=游戏小时 / _per_gh=每游戏小时。",
+
+  "bleeding": {
+    "bleed_hp_loss_per_gh_per_stack_hp": 2.0,
+    "bleed_expires_gh": 12.0,
+    "bleed_max_stacks_count": 3
+  },
+
+  "bite": {
+    "bite_bleed_stacks_count": 1,
+    "bite_bleed_expires_gh": 12.0
+  }
+}

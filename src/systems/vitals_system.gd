@@ -38,13 +38,19 @@ const TICKS_PER_SEC := 60        # C27 帧基（FRAMES_PER_GH = 72s × 60）
 const HP_MILLI := 1000           # C26 milli 定点：1 HP = 1000 milli
 
 const _BAL_PATH := "res://data/balance/survival.json"
+const _STATUS_PATH := "res://data/balance/status_effects.json"
 const _Store = preload("res://src/core/state_store.gd")
+
+## 存档注册键：状态效果容器（架构 §5.2 落在 player 段下，但 player 段由
+## StateStore.snapshot() 自动收录，容器塞不进去 → 单独一段，字段蓝图见
+## data/schema/save.schema.json 的 player 段 status_effects）。
+const PERSIST_KEY := &"player_status_effects"
 
 signal died(cause: String)                   # cause ∈ ResolveOrder.DAMAGE_SOURCE_ORDER
 signal forced_sleep_triggered(path: String)  # "threshold" | "wild"
 
 # ── 运行值（_load_balance 自 survival.json 载入）──
-var _hp_max := 100.0
+static var _hp_max := 100.0
 var _stamina_max := 100.0
 var _hunger_max := 100.0
 var _thirst_max := 100.0
@@ -70,9 +76,30 @@ var _wild_sleep_death_pending := false
 var _death_fired := false
 var last_death_cause := ""
 
+# ── 状态效果容器（容器型：不进 state_contract，走 SaveSystem 注册表）──
+## 架构 §5.2 的落盘形态：player.status_effects = [{id, stacks, expires_at_gh}]
+## 本系统只持有这一份真相；DAMAGE_SOURCE_ORDER 里的 "bleed" 由此判定。
+##
+## ⚠ 容器是 **static**（脚本级唯一），不是实例成员：
+##   ① 存档注册只能做一次（Save.register_persistence 遇重复 key 会 assert 崩），
+##      而无头测试会 new 多个实例——实例成员的话每次 new 都会注册一次，直接崩。
+##   ② 更要紧的是**回调要绑到唯一的那份数据**。若注册的是实例 Callable，
+##      存档读写就会绑在"第一个被 new 的实例"上，第二个实例的容器是空的——
+##      读档丢状态，而且不报错（最难查的那类洞）。
+##   static 容器 + static 回调 = 数据与回调始终指向同一份，不存在分叉。
+static var _status_effects: Array[Dictionary] = []
+static var _persist_registered := false
+static var _bleed_hp_loss_per_gh_per_stack := 0.0   # 出血压血速率（自 status_effects.json 载入）
+static var _bleed_expires_gh := 12.0    # 出血默认持续 GH
+static var _bleed_max_stacks := 0       # 出血层数上限（0 = 不限）
+static var _bite_stacks := 1            # 一次咬伤挂几层出血
+static var _bite_bleed_expires_gh := 12.0
+var _bite_pending := false       # 咬伤致死标记（CombatSystem 置位，跨 GH 有效）
+
 
 func _ready() -> void:
 	_load_balance()
+	register_persistence()
 	# GameLoop 走运行期查找而非 autoload 标识符：`-s` 无头启动时被拉进来的脚本
 	# 引用 autoload 标识符会编译失败，连带本文件的 static 判据全部不可用。
 	var loop := get_node_or_null("/root/GameLoop")
@@ -101,7 +128,7 @@ func on_gh_crossed(gh_mark: int) -> void:
 			"hp_floor":
 				_check_death()
 			"status_effects":
-				pass  # TODO 包 B：出血 buff（expires_at_gh）
+				_apply_status_effects(gh_mark)
 			"forced_sleep":
 				_check_forced_sleep()
 
@@ -184,22 +211,153 @@ func _check_death() -> void:
 
 
 func _attribute_death() -> String:
-	# 按 DAMAGE_SOURCE_ORDER 的固定序找第一个成立的死因（starvation 先于 dehydration）
-	for cause: String in ResolveOrder.DAMAGE_SOURCE_ORDER:
-		match cause:
-			"starvation":
-				if float(State.read("player.hunger")) <= 0.0:
-					return cause
-			"dehydration":
-				if float(State.read("player.thirst")) <= 0.0:
-					return cause
-			"wild_sleep":
-				if _wild_sleep_death_pending:
-					return cause
-			_:
-				pass  # bleed / bite 归 CombatSystem，不在本系统判定
-	# 兜底：HP 归零但可归因源都没命中 → 取表内第一个，保证字符串有唯一来源
-	return ResolveOrder.DAMAGE_SOURCE_ORDER[0]
+	# 按 DAMAGE_SOURCE_ORDER 的固定序找第一个成立的死因（starvation 先于 dehydration）。
+	# 判据本体在 static func attribute_death_cause()，实现与判据共用同一张表——
+	# 但表是 core 的 ResolveOrder，本系统不持有副本。
+	var present := {
+		"starvation": float(State.read("player.hunger")) <= 0.0,
+		"dehydration": float(State.read("player.thirst")) <= 0.0,
+		"wild_sleep": _wild_sleep_death_pending,
+		"bleed": _bleed_active(),
+		"bite": _bite_pending,
+	}
+	return attribute_death_cause(present)
+
+
+# ════════════════════════════════════════════════════════════════
+#  状态效果（出血等 buff）
+# ════════════════════════════════════════════════════════════════
+#
+## 容器型状态：数组 [{id, stacks, expires_at_gh}]，**不进 state_contract**——
+## ChangeSet 是数值 Op 流，塞不进数组（协作纪律 5 / D-009 两层边界）。
+## 落盘走 SaveSystem.register_persistence("player_status_effects", …)。
+##
+## 结算点：GH 边界（ResolveOrder.STATUS_RESOLVE_ORDER 的 "status_effects" 位）。
+## 出血按「每 GH 每层掉多少 HP」结算，**不是按秒**——与饥饿/渴的逐帧扣血不同：
+## 出血是持续伤害 buff，设计上以 GH 为粒度（expires_at_gh 也是 GH）。
+## 若设计侧要求逐帧，改这里即可，但那时 expires_at_gh 的语义也要一起改。
+
+## 施加状态效果（CombatSystem / 事件效果调用）
+## stacks：层数，同 id 叠加层数（不叠 expires——取最晚的那个）
+static func apply_status_effect(id: StringName, stacks: int, expires_at_gh: float) -> void:
+	if stacks <= 0:
+		return
+	var eid := String(id)
+	for eff: Dictionary in _status_effects:
+		if String(eff.get("id", "")) == eid:
+			eff["stacks"] = int(eff.get("stacks", 0)) + stacks
+			eff["expires_at_gh"] = maxf(float(eff.get("expires_at_gh", 0.0)), expires_at_gh)
+			_clamp_stacks(eff)
+			return
+	_status_effects.append({
+		"id": eid, "stacks": stacks, "expires_at_gh": expires_at_gh,
+	})
+	_clamp_stacks(_status_effects[_status_effects.size() - 1])
+
+
+## 层数上限（0 = 不限）。上限只对"出血"生效——其它 buff 的上限规则待设计侧给。
+static func _clamp_stacks(eff: Dictionary) -> void:
+	if String(eff.get("id", "")) != "bleeding":
+		return
+	if _bleed_max_stacks > 0:
+		eff["stacks"] = mini(int(eff.get("stacks", 0)), _bleed_max_stacks)
+
+
+## GH 边界结算：先到期清理，再按剩余层数扣血
+static func _apply_status_effects(gh_now: float) -> void:
+	if _status_effects.is_empty():
+		return
+	# ① 到期清理（expires_at_gh <= 当前 GH 即失效）
+	var alive: Array[Dictionary] = []
+	for eff: Dictionary in _status_effects:
+		if float(eff.get("expires_at_gh", 0.0)) > gh_now:
+			alive.append(eff)
+	_status_effects = alive
+	if _status_effects.is_empty():
+		return
+
+	# ② 出血扣血：每 GH 每层一份
+	var hp := float(State.read("player.hp"))
+	var drain := 0.0
+	for eff: Dictionary in _status_effects:
+		if String(eff.get("id", "")) != "bleeding":
+			continue
+		drain += _bleed_hp_loss_per_gh_per_stack * float(int(eff.get("stacks", 0)))
+	if drain > 0.0:
+		_write_float("player.hp", hp - drain, _hp_max, "bleed status effect")
+
+
+## 当前是否有生效的出血（死亡归因用）
+static func _bleed_active() -> bool:
+	for eff: Dictionary in _status_effects:
+		if String(eff.get("id", "")) == "bleeding" and int(eff.get("stacks", 0)) > 0:
+			return true
+	return false
+
+
+## 状态效果快照（存档用；只读副本，调用方改不动内部）
+static func status_effects_snapshot() -> Array:
+	var out: Array = []
+	for eff: Dictionary in _status_effects:
+		out.append({
+			"id": String(eff.get("id", "")),
+			"stacks": int(eff.get("stacks", 0)),
+			"expires_at_gh": float(eff.get("expires_at_gh", 0.0)),
+		})
+	return out
+
+
+## 状态效果恢复（存档用；脏 id 拒载，未知 id 不写回内存）
+static func status_effects_restore(snap: Array) -> void:
+	_status_effects.clear()
+	for item: Variant in snap:
+		if not (item is Dictionary):
+			continue
+		var e: Dictionary = item
+		var eid := String(e.get("id", ""))
+		if eid != "bleeding":
+			continue    # 只认已实现的 buff id，其余拒载
+		var stacks := int(e.get("stacks", 0))
+		if stacks <= 0:
+			continue
+		_status_effects.append({
+			"id": eid, "stacks": stacks,
+			"expires_at_gh": float(e.get("expires_at_gh", 0.0)),
+		})
+
+
+## 咬伤致死标记（CombatSystem 调）：置位后，HP 归零时归因走 "bite"
+func note_bite_wounding() -> void:
+	_bite_pending = true
+
+
+## 施加咬伤：置位 bite 标记 + 挂出血 buff（层数与持续时间由数据表给）
+func apply_bite(stacks: int = -1, expires_at_gh: float = -1.0) -> void:
+	_bite_pending = true
+	var s := stacks if stacks > 0 else _bite_stacks
+	var until := expires_at_gh
+	if until < 0.0:
+		until = _bite_bleed_expires_gh
+	apply_status_effect(&"bleeding", s, until)
+
+
+## 状态效果存档段（SaveSystem 注册表用）——static：容器与回调必须同源
+static func to_save_status_effects() -> Dictionary:
+	return {"status_effects": status_effects_snapshot()}
+
+
+static func from_save_status_effects(snap: Dictionary) -> void:
+	status_effects_restore(snap.get("status_effects", []) as Array)
+
+
+## 存档注册（只做一次）。static 回调 → 不绑任何实例，
+## 存档读写永远指向脚本级唯一的那份容器。
+static func register_persistence() -> void:
+	if _persist_registered:
+		return
+	Save.register_persistence(PERSIST_KEY, Callable(VitalsSystem, "to_save_status_effects"),
+		Callable(VitalsSystem, "from_save_status_effects"))
+	_persist_registered = true
 
 
 # ════════════════════════════════════════════════════════════════
@@ -279,6 +437,20 @@ static func zero_cross_frame_share_ok(loss_per_sec: float) -> bool:
 	return hp_loss_per_tick(loss_per_sec) <= (1.0 / float(TICKS_PER_SEC)) + 1e-9
 
 
+## M14：同帧多源致死，归因必须走 ResolveOrder.DAMAGE_SOURCE_ORDER 的**固定序**，
+## 连跑 10 次归因 10/10 一致（禁 dict 遍历序——遍历序在不同运行/不同插入序下会变）。
+##
+## 期望值独立于被测逻辑：ORDER 是被测的输入（表本身由 core 提供），
+## 但"应当选中哪个 cause"是**本函数按表推出的**，不是被测代码自算的，
+## 所以这里比对的是"选中的 cause == 表中第一个成立的 cause"这一结构性质。
+static func attribute_death_cause(present: Dictionary) -> String:
+	for cause: String in ResolveOrder.DAMAGE_SOURCE_ORDER:
+		if bool(present.get(cause, false)):
+			return cause
+	# 全都不成立：归因到表内第一个（保证字符串有唯一来源，不返回空串）
+	return ResolveOrder.DAMAGE_SOURCE_ORDER[0]
+
+
 ## M4：是否触发强制睡（双路径共用一个比较，5.00 与 4.99 一步跨过同样命中）
 ## threshold_pct 是百分数（5 = 5%），max_units 是满值（100）
 static func forced_sleep_should_trigger(stamina: float, threshold_pct: float,
@@ -286,6 +458,156 @@ static func forced_sleep_should_trigger(stamina: float, threshold_pct: float,
 	if latched:
 		return false
 	return stamina <= threshold_pct * 0.01 * max_units
+
+
+# ════════════════════════════════════════════════════════════════
+#  自检（M14 死亡归因 / 出血 buff 生命周期）
+# ════════════════════════════════════════════════════════════════
+
+## M14 判据本体：同帧多源致死，归因必须 10/10 一致，且必须等于
+## DAMAGE_SOURCE_ORDER 固定序中**第一个成立**的 cause。
+##
+## 为什么期望值要独立写死（防恒真式——本项目已踩三次）：
+## 若期望值取自 attribute_death_cause() 自己的输出，那就是"自己算自己比"，
+## 恒真。这里写死的是**表序推导出的具体 cause 字符串**。
+##
+## ⚠ 字典插入序必须**逆着表序**（DAMAGE_SOURCE_ORDER = starvation, dehydration,
+## bleed, bite, wild_sleep）：GDScript 的 Dictionary 保序，若字典按表序插入，
+## "遍历 present 字典"这个被明令禁止的写法会给出**同一个答案**——
+## 判据就成了永远绿的假货（第一次写这判据时正是踩了这个坑）。
+## 现在多源用例一律写成 {"bleed":…, "starvation":…} 这种逆表序形态：
+## dict 序会给 bleed，表序必须给 starvation，两者不同 ⇒ 判据有牙齿。
+static func verify_death_attribution() -> Dictionary:
+	var out := {}
+	# ① 10 次连跑归因一致（同帧多源：饥饿 + 渴同时归零，**字典按逆表序插入**）
+	var causes: Array[String] = []
+	for _i in 10:
+		causes.append(attribute_death_cause({
+			"dehydration": true, "starvation": true,
+		}))
+	var same := true
+	for c: String in causes:
+		if c != causes[0]:
+			same = false
+	out["M14_runs"] = causes.size()
+	out["M14_consistent"] = same
+	out["M14_cause"] = causes[0] if causes.size() > 0 else ""
+	# ② 归因值必须是 starvation（表内 starvation 先于 dehydration）
+	out["M14_expected_cause"] = "starvation"
+	out["M14_pass"] = same and out["M14_cause"] == "starvation"
+
+	# ③ 反向对照：只成立 dehydration → 归因 dehydration（不是恒返回 starvation）
+	var only_thirst := attribute_death_cause({"dehydration": true})
+	out["M14_only_dehydration"] = only_thirst
+	out["M14_only_dehydration_ok"] = only_thirst == "dehydration"
+
+	# ④ bleed 成立时归因 bleed（证明新加的 buff 位接进了归因表）
+	var bleed_only := attribute_death_cause({"bleed": true})
+	out["M14_bleed_only"] = bleed_only
+	out["M14_bleed_ok"] = bleed_only == "bleed"
+
+	# ⑤ ★ 判据牙齿所在：bleed + starvation 同时成立，字典按逆表序插入。
+	#    表序必须给 starvation（表内 starvation < bleed）；
+	#    若实现改成遍历 present 字典，这里会给 bleed → 判据变红。
+	var starve_and_bleed := attribute_death_cause({"bleed": true, "starvation": true})
+	out["M14_starve_over_bleed"] = starve_and_bleed
+	out["M14_starve_over_bleed_ok"] = starve_and_bleed == "starvation"
+
+	# ⑥ 全不成立 → 表内第一个（唯一来源，不返回空串）
+	var none := attribute_death_cause({})
+	out["M14_fallback"] = none
+	out["M14_fallback_ok"] = none == ResolveOrder.DAMAGE_SOURCE_ORDER[0]
+
+	out["M14_all_pass"] = bool(out["M14_pass"]) and bool(out["M14_only_dehydration_ok"]) \
+		and bool(out["M14_bleed_ok"]) and bool(out["M14_starve_over_bleed_ok"]) \
+		and bool(out["M14_fallback_ok"])
+	return out
+
+
+## 出血 buff 生命周期判据：施加 → 生效扣血 → 到期失效 → 存档往返不丢
+func verify_bleed_buff() -> Dictionary:
+	var out := {}
+	_status_effects.clear()
+
+	# ① 施加 2 层出血，持续到 GH 12
+	apply_status_effect(&"bleeding", 2, 12.0)
+	out["BLEED_stacks"] = 0
+	for eff: Dictionary in _status_effects:
+		out["BLEED_stacks"] = int(eff.get("stacks", 0))
+	out["BLEED_applied"] = int(out["BLEED_stacks"]) == 2
+	out["BLEED_active_before_expiry"] = _bleed_active()
+
+	# ② 同 id 叠加：再加 1 层 → 3 层（不是覆盖）
+	apply_status_effect(&"bleeding", 1, 12.0)
+	var total := 0
+	for eff: Dictionary in _status_effects:
+		total += int(eff.get("stacks", 0))
+	out["BLEED_stacked_total"] = total
+	out["BLEED_stack_ok"] = total == 3
+
+	# ③ 叠加不叠到期时间：给一个更晚的到期时间 → 取最晚
+	apply_status_effect(&"bleeding", 1, 20.0)
+	var latest := 0.0
+	for eff: Dictionary in _status_effects:
+		latest = maxf(latest, float(eff.get("expires_at_gh", 0.0)))
+	out["BLEED_expiry_kept_latest"] = latest
+	out["BLEED_expiry_ok"] = is_equal_approx(latest, 20.0)
+
+	# ③b ★ 层数上限：叠到**超过**上限后必须被压住。
+	#    ⚠ 上一版这里叠 2+1=3，恰好等于上限 3 → 上限逻辑坏掉也测不出来
+	#    （变异体实测 BLEED_all_pass 仍为 true）。必须叠过线才算真测上限。
+	var cap := _bleed_max_stacks
+	out["BLEED_max_stacks"] = cap
+	if cap > 0:
+		apply_status_effect(&"bleeding", cap + 5, 20.0)   # 远超上限
+		var capped := 0
+		for eff: Dictionary in _status_effects:
+			capped += int(eff.get("stacks", 0))
+		out["BLEED_capped_total"] = capped
+		out["BLEED_cap_ok"] = capped == cap
+	else:
+		# 上限为 0 = 不限：叠多少就是多少
+		apply_status_effect(&"bleeding", 5, 20.0)
+		var uncapped := 0
+		for eff: Dictionary in _status_effects:
+			uncapped += int(eff.get("stacks", 0))
+		out["BLEED_capped_total"] = uncapped
+		out["BLEED_cap_ok"] = uncapped == 8   # 3+5
+
+	# ④ 到期清理：GH 25 边界 → 全部过期 → 不再是活 buff
+	_apply_status_effects(25.0)
+	out["BLEED_count_after_expiry"] = _status_effects.size()
+	out["BLEED_expired"] = _status_effects.is_empty()
+	out["BLEED_not_active_after_expiry"] = not _bleed_active()
+
+	# ⑤ 存档往返：容器内容一字不差
+	apply_status_effect(&"bleeding", 2, 30.0)
+	var snap := to_save_status_effects()
+	_status_effects.clear()
+	from_save_status_effects(snap)
+	out["BLEED_roundtrip_count"] = _status_effects.size()
+	out["BLEED_roundtrip_stacks"] = 0
+	for eff: Dictionary in _status_effects:
+		out["BLEED_roundtrip_stacks"] = int(eff.get("stacks", 0))
+	out["BLEED_roundtrip_ok"] = int(out["BLEED_roundtrip_count"]) == 1 \
+		and int(out["BLEED_roundtrip_stacks"]) == 2
+
+	# ⑥ 脏 id 拒载：未知 buff id 不写回内存
+	var dirty := {"status_effects": [
+		{"id": "bleeding", "stacks": 1, "expires_at_gh": 5.0},
+		{"id": "buff_removed_from_game", "stacks": 9, "expires_at_gh": 5.0},
+	]}
+	_status_effects.clear()
+	from_save_status_effects(dirty)
+	out["BLEED_dirty_rejected"] = _status_effects.size() == 1
+	out["BLEED_dirty_ok"] = int(out["BLEED_dirty_rejected"]) == 1
+
+	_status_effects.clear()
+	out["BLEED_all_pass"] = bool(out["BLEED_applied"]) and bool(out["BLEED_stack_ok"]) \
+		and bool(out["BLEED_expiry_ok"]) and bool(out["BLEED_cap_ok"]) \
+		and bool(out["BLEED_expired"]) \
+		and bool(out["BLEED_roundtrip_ok"]) and bool(out["BLEED_dirty_ok"])
+	return out
 
 
 # ════════════════════════════════════════════════════════════════
@@ -298,13 +620,13 @@ func _threshold_units() -> float:
 
 ## 写浮点状态。max_v 是该路径的契约上限（player.* 全是 100），
 ## 先夹进 [0, max_v] 再 setv——否则 StateStore._authorize 会按 op 值判越界拒写。
-func _write_float(path: String, value: float, max_v: float, reason: String) -> void:
+static func _write_float(path: String, value: float, max_v: float, reason: String) -> void:
 	var cs := _Store.ChangeSet.new(&"vitals_system", reason)
 	cs.setv(path, clampf(value, 0.0, max_v))
 	State.apply(cs)
 
 
-func _write_bool(path: String, value: bool, reason: String) -> void:
+static func _write_bool(path: String, value: bool, reason: String) -> void:
 	var cs := _Store.ChangeSet.new(&"vitals_system", reason)
 	cs.setv(path, value)
 	State.apply(cs)
@@ -336,6 +658,28 @@ func _load_balance() -> void:
 	_wild_sleep_stamina_refill_pct = float(d.get("wild_sleep_stamina_refill_pct", 20.0))
 	_incap_duration_frames = int(d.get("incap_duration_frames", 216))
 	_incap_stamina_refill_pct = float(d.get("incap_stamina_refill_pct", 10.0))
+	_load_status_effects()
+
+
+## 载入 data/balance/status_effects.json（状态效果数值源）
+## 数值缺失时不编造：保持 0（出血不扣血）并把缺数登记在 data/UNDEFINED.md。
+func _load_status_effects() -> void:
+	var f := FileAccess.open(_STATUS_PATH, FileAccess.READ)
+	if f == null:
+		push_warning("vitals_system: %s missing - bleed disabled" % _STATUS_PATH)
+		return
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("vitals_system: %s parse failed - bleed disabled" % _STATUS_PATH)
+		return
+	var d: Dictionary = parsed
+	var bleed: Dictionary = d.get("bleeding", {})
+	_bleed_hp_loss_per_gh_per_stack = float(bleed.get("bleed_hp_loss_per_gh_per_stack_hp", 0.0))
+	_bleed_expires_gh = float(bleed.get("bleed_expires_gh", 12.0))
+	_bleed_max_stacks = int(bleed.get("bleed_max_stacks_count", 0))
+	var bite: Dictionary = d.get("bite", {})
+	_bite_stacks = int(bite.get("bite_bleed_stacks_count", 1))
+	_bite_bleed_expires_gh = float(bite.get("bite_bleed_expires_gh", 12.0))
 
 	var drifts: PackedStringArray = []
 	if not is_equal_approx(_hunger_rate_per_gh, HUNGER_RATE_PER_GH):

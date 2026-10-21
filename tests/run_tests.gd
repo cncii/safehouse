@@ -734,6 +734,52 @@ func _run_vitals_asserts() -> void:
 	_t("M4: forced_sleep_threshold_pct == 5 (design anchor)",
 		is_equal_approx(thr_pct, 5.0))
 
+	# ── M14：同帧多源致死归因（包 B 提交，2026-10-21）──
+	# 判据本体在 src/systems/vitals_system.gd 的 verify_death_attribution()。
+	# 期望值独立写死（不取被测函数自算值——防恒真式，本项目已踩三次）。
+	# ★ 关键：判据里的多源字典一律**逆表序**插入——GDScript Dictionary 保序，
+	#   若按表序插入，"遍历 present 字典"这个 M14 明令禁止的写法会给出同一答案，
+	#   判据就成了永远绿的假货。变异测试已实测：改成 dict 遍历 → M14 变红。
+	var m14 := VitalsSystem.verify_death_attribution()
+	_t("M14-multi-source death cause deterministic 10/10 (%s)"
+		% str(m14.get("M14_cause", "?")),
+		bool(m14.get("M14_pass", false))
+		and int(m14.get("M14_runs", 0)) == 10
+		and bool(m14.get("M14_consistent", false)))
+	_t("M14-only-dehydration -> dehydration (not hardcoded starvation)",
+		bool(m14.get("M14_only_dehydration_ok", false)))
+	_t("M14-bleed-only -> bleed (buff wired into attribution table)",
+		bool(m14.get("M14_bleed_ok", false)))
+	_t("M14-table order wins over dict order (starvation < bleed)",
+		bool(m14.get("M14_starve_over_bleed_ok", false)))
+	_t("M14-no cause present -> table[0] (unique non-empty source)",
+		bool(m14.get("M14_fallback_ok", false)))
+
+	# ── 出血 buff 生命周期（包 B 提交，2026-10-21）──
+	# 判据本体在 vitals_system.gd 的 verify_bleed_buff()。
+	var vs_b = VitalsSystem.new()
+	add_child(vs_b)
+	var bleed := vs_b.verify_bleed_buff()
+	_t("BLEED-apply stacks + active before expiry",
+		bool(bleed.get("BLEED_applied", false))
+		and bool(bleed.get("BLEED_active_before_expiry", false)))
+	_t("BLEED-same-id stacks accumulate (%s total)"
+		% str(bleed.get("BLEED_stacked_total", -1)),
+		bool(bleed.get("BLEED_stack_ok", false)))
+	_t("BLEED-expiry takes the LATEST (not overwritten)",
+		bool(bleed.get("BLEED_expiry_ok", false)))
+	_t("BLEED-stack cap enforced (cap=%s, total=%s)"
+		% [str(bleed.get("BLEED_max_stacks", -1)), str(bleed.get("BLEED_capped_total", -1))],
+		bool(bleed.get("BLEED_cap_ok", false)))
+	_t("BLEED-expired at expires_at_gh -> removed + inactive",
+		bool(bleed.get("BLEED_expired", false))
+		and bool(bleed.get("BLEED_not_active_after_expiry", false)))
+	_t("BLEED-save/load roundtrip preserves container",
+		bool(bleed.get("BLEED_roundtrip_ok", false)))
+	_t("BLEED-unknown buff id rejected on load",
+		bool(bleed.get("BLEED_dirty_ok", false)))
+	vs_b.free()
+
 func _load_json_dict(path: String) -> Dictionary:
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:

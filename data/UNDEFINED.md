@@ -49,6 +49,9 @@
 | T-004 | `travel_cost` 无连线返回 `-1` 而非 `0` | `-1` = 不可达，调用方必须处理。**返回 0 会被当成免费传送** | 已实现，调用方（战斗组/表现组）需知会 |
 | T-005 | 本组三个自检尚未接进判据套件 | `map_system.verify_determinism()`（M9/P16）、`inventory_system.verify_capacity_conservation()`（P12/P13）、`continuous_action.verify_continuous_actions()`（M20）、`tech_tree_system.verify_tech_tree()`（P22-0/P28）——**判据本体都在逻辑组自己的文件里**，但 `tests/**` 归包 F，需要他们加 `test_map/test_inventory/test_continuous/test_tech` 各一个接线文件 | 包 F 接线；接线前这四组判据只能标「未生效」 |
 | T-006 | `tools/test.ps1` 在**没有 UTF-8 环境变量**的 shell 里 stage 1 会崩 | `validate_data.py` 的判据名含 `↔`(U+2194)，中文 Windows 的 GBK 编不了 → `UnicodeEncodeError` → exit 1 → stage 1 判红。WorkBuddy 的 Bash 工具预设了 `PYTHONIOENCODING=utf-8`/`PYTHONUTF8=1`，PowerShell 没有 | 建议包 F 在 test.ps1 顶部加 `$env:PYTHONIOENCODING="utf-8"`（与已有的 F6 控制台编码处理同源）。**这不是判据红，是环境崩**——两者必须能区分 |
+| T-007 | 状态效果的存档段**不在 player 段内** | 架构 §5.2 的落盘形态是 `player.status_effects`（嵌在 player 里），但 `player` 段由 `StateStore.snapshot()` 自动收录，而 `status_effects` 是**容器**（数组）——ChangeSet 是数值 Op 流塞不进数组（D-009 两层边界）。本组改为独立段 `player_status_effects`（`SaveSystem.register_persistence`） | **需要 core 侧裁决**：要么 player 段支持容器型扩展，要么接受独立段。逻辑组已按 D-009 的容器型规则落独立段，不改 core |
+| T-008 | 状态效果容器是 **static**（脚本级唯一） | `Save.register_persistence` 遇重复 key 会 assert 崩，而无头测试会 new 多个实例；更要紧的是**注册实例 Callable 会把存档绑在"第一个被 new 的实例"上**，第二个实例的容器是空的——读档丢状态且不报错 | 已按 static 容器 + static 回调落地，数据与回调恒同源。**战斗组接线时注意**：调 `VitalsSystem.apply_bite()` 是静态的，不要用实例引用 |
+| T-009 | `run_tests.gd` 汇总行第二个数字打错 | `print("--- gate run: %d pass / %d fail ---" % [_pass, _pass + _fail])`——第二个参数传的是**总数**不是失败数，所以永远显示 "N pass / N fail"。**包 F 的既有 bug**（`5760fc4` 引入），不是本组引入 | 包 F 修：第二个参数应为 `_fail`。**判据红与显示错必须能区分**——本组一度误以为"142 条里 142 条红" |
 
 ---
 
@@ -107,3 +110,6 @@
 | D-B04 | 拆解台 | **拆解产出的零件落在哪里**。loop.json 有 `parts_store_cap_units: 20`，但契约里没有 `loop.store_parts_milli`；背包侧是容器型物品 `item_parts` | 拆解台产出无处落账；科技研究的扣零件也就无从谈起（与 D-016 同一个根因） | 架构 + 需求方 | 拆解→零件→科技 这条链的闭环 |
 | D-B05 | `loop_system.production_rate_milli(POWER)` | **电力是存量还是开关**。契约里有 `loop.store_power_milli`（整数），但 loop.json 没有 `power_store_cap_units`，也没说断电是"存量归零"还是"开关关闭" | 断电时全 L3 产出 ×50% 的痛感对不对；发电机加燃料的收益怎么算 | 创意总监 | 电力链；阶段 B 资源收支 |
 | D-B06 | `tech_tree.json` 24 节点 | **节点效果数据缺失**（无 `effects` 字段）。设计基线 2.3 有「L3-1 雨水收集器→脏水 0.20→0.35/GH」这类解锁效果，数据里没有 | **科技树解一个节点，世界没有任何变化**——科技线目前是空的 | 创意总监 | 科技树 24 节点的实际玩法价值；多周目解锁表 |
+| D-B08 | `data/balance/status_effects.json` 出血数值 | **出血的三个数值设计侧一个都没给**：每 GH 每层掉多少 HP（`bleed_hp_loss_per_gh_per_stack_hp`，现占位 2.0）、持续多久（`bleed_expires_gh`，现占位 12.0）、最多叠几层（`bleed_max_stacks_count`，现占位 3）。架构 §5.2 只给了落盘结构 `status_effects:[{id,stacks,expires_at_gh}]`，**没有任何数值** | 出血是"被咬后持续掉血"的痛感来源。数值错了，被咬一口的威慑力就不对（太轻玩家不躲，太重一次就死） | 创意总监 | 出血的实战手感；咬伤是否真的值得怕 |
+| D-B09 | `vitals_system` 出血的**结算粒度** | 出血按 **GH** 结算（每 GH 每层一份扣血），与饥饿/渴的**逐帧**扣血粒度不同。设计基线没说是 GH 还是秒 | 粒度不同玩家的体感差一个量级：按 GH 是"一小时掉一次"，按秒是"持续掉" | 创意总监 | 出血的体感；`expires_at_gh` 的语义要不要一起改成秒 |
+| D-B10 | 咬伤的触发点 | **谁在什么时候给玩家挂咬伤**（僵尸咬到？陷阱？剧情事件？）以及 `bite` 与 `bleed` 的关系。CombatSystem 目前只有 `on_hit_received()`，没有咬伤路径；本组的 `apply_bite()` 已备好但**无人调用** | 出血这条链现在只有"能被施加"，没有"会被施加"——实战里不会真的流血 | 战斗组 + 创意总监 | 出血的端到端可玩性；战斗组接线 |
