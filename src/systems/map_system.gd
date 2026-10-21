@@ -28,20 +28,28 @@ const _LOC_PATH := "res://data/locations/locations.json"
 const _THEME_PATH := "res://data/locations/themes.json"
 const _LOOT_PATH := "res://data/items/loot_tables.json"
 const _ITEMS_PATH := "res://data/items/items.json"
+const _PLAN_PATH := "res://data/locations/scavenge_plans.json"
 
-var _loaded := false
-var _nodes: Dictionary = {}          # node_id -> node
-var _edges: Array = []               # [{from,to,travel_cost_gh}]
-var _themes: Dictionary = {}         # theme_id -> theme
-var _loot: Dictionary = {}           # theme_id -> [entries]
-var _loot_total: Dictionary = {}     # theme_id -> 权重合计
-var _item_ids: Dictionary = {}       # item_id -> true（悬空引用自检）
+static var _loaded := false
+static var _persist_registered := false
+static var _nodes: Dictionary = {}          # node_id -> node
+static var _edges: Array = []               # [{from,to,travel_cost_gh}]
+static var _themes: Dictionary = {}         # theme_id -> theme
+static var _loot: Dictionary = {}           # theme_id -> [entries]
+static var _loot_total: Dictionary = {}     # theme_id -> 权重合计
+static var _item_ids: Dictionary = {}       # item_id -> true（悬空引用自检）
 
 
 func _ready() -> void:
 	_ensure_loaded()
-	Save.register_persistence(PERSIST_KEY, Callable(self, "to_save"),
-		Callable(self, "from_save"))
+	# 存档注册只做一次——Save.register_persistence 遇重复 key 会 assert 崩，
+	# 而无头测试会 new 多个实例（test_map / test_map_loot 各一个）。
+	# 用 static 回调（不绑实例）：绑实例会把存档绑在"第一个被 new 的实例"上，
+	# 第二个实例的容器是空的——读档丢状态且不报错。
+	if not _persist_registered:
+		Save.register_persistence(PERSIST_KEY, Callable(MapSystem, "to_save"),
+			Callable(MapSystem, "from_save"))
+		_persist_registered = true
 
 
 # ════════════════════════════════════════════════════════════════
@@ -197,7 +205,7 @@ func _roll_count(entry: Dictionary, h: int) -> Array:
 ## 该地点在 day 当天是否处于「已回填」状态。
 ## 判据：high_freq == true 且 day >= refill_from_day_count 且 REFILL 命中。
 ## 每日至多回填一次（hash_at 是 day 的纯函数，天然不会一天命中两次）。
-func is_refilled(node_id: StringName, day: int) -> bool:
+static func is_refilled(node_id: StringName, day: int) -> bool:
 	_ensure_loaded()
 	var node: Dictionary = _nodes.get(str(node_id), {})
 	if node.is_empty() or not bool(node.get("high_freq", false)):
@@ -215,7 +223,7 @@ func is_refilled(node_id: StringName, day: int) -> bool:
 ## 为什么「回填后货架内容会变」不需要额外机制：LOOT 的哈希键是
 ## [loc_id, point_id]，而**跨天时 day 本身就变了** → 哈希变 → 内容变。
 ## （同一天内的二次回填不换内容——那要不要换，属未定义，缺数 D-B08。）
-func refresh_refills(day: int) -> void:
+static func refresh_refills(day: int) -> void:
 	_ensure_loaded()
 	var next := PackedStringArray()
 	for node_id: String in _nodes:
@@ -228,7 +236,7 @@ func refresh_refills(day: int) -> void:
 
 
 ## 当前待回填（玩家还没去）的地点
-func pending_refills() -> PackedStringArray:
+static func pending_refills() -> PackedStringArray:
 	return _pending_refills.duplicate()
 
 
@@ -242,7 +250,7 @@ const _Store = preload("res://src/core/state_store.gd")
 ## ⑤ 地图。current_node / unlocked_nodes 是数值路径型（已在 state_contract，
 ## writer = map_system），读写都过 State 单点源；locations（visited_days/looted/
 ## refill_generation）与 pending_refills 是容器型，存本地，不进 contract。
-func to_save() -> Dictionary:
+static func to_save() -> Dictionary:
 	return {
 		"current_node": str(State.read("map.current_node")),
 		"unlocked_nodes": _unlocked_nodes(),
@@ -251,7 +259,7 @@ func to_save() -> Dictionary:
 	}
 
 
-func from_save(snap: Dictionary) -> void:
+static func from_save(snap: Dictionary) -> void:
 	_locations = {}
 	var raw: Variant = snap.get("locations", {})
 	if typeof(raw) == TYPE_DICTIONARY:
@@ -270,10 +278,10 @@ func from_save(snap: Dictionary) -> void:
 
 
 # ── 容器型运行状态 ──
-var _locations: Dictionary = {}       # node_id -> {visited_days[], looted[], refill_generation}
-var _pending_refills: PackedStringArray = PackedStringArray()
+static var _locations: Dictionary = {}       # node_id -> {visited_days[], looted[], refill_generation}
+static var _pending_refills: PackedStringArray = PackedStringArray()
 
-func mark_visited(node_id: StringName, day: int) -> void:
+static func mark_visited(node_id: StringName, day: int) -> void:
 	var sec := _location_sec(str(node_id))
 	var days: Array = sec["visited_days"]
 	if not days.has(day):
@@ -286,26 +294,26 @@ func mark_visited(node_id: StringName, day: int) -> void:
 		_pending_refills.remove_at(idx)
 
 
-func mark_looted(node_id: StringName, point_id: StringName) -> void:
+static func mark_looted(node_id: StringName, point_id: StringName) -> void:
 	var sec := _location_sec(str(node_id))
 	var looted: Array = sec["looted"]
 	if not looted.has(str(point_id)):
 		looted.append(str(point_id))
 
 
-func is_looted(node_id: StringName, point_id: StringName) -> bool:
+static func is_looted(node_id: StringName, point_id: StringName) -> bool:
 	var sec: Dictionary = _locations.get(str(node_id), {})
 	var looted: Array = sec.get("looted", [])
 	return looted.has(str(point_id))
 
 
-func _location_sec(node_id: String) -> Dictionary:
+static func _location_sec(node_id: String) -> Dictionary:
 	if not _locations.has(node_id):
 		_locations[node_id] = {"visited_days": [], "looted": [], "refill_generation": 0}
 	return _locations[node_id]
 
 
-func _unlocked_nodes() -> PackedStringArray:
+static func _unlocked_nodes() -> PackedStringArray:
 	var raw: Variant = State.read("map.unlocked_nodes")
 	var out := PackedStringArray()
 	if typeof(raw) == TYPE_ARRAY or typeof(raw) == TYPE_PACKED_STRING_ARRAY:
@@ -314,7 +322,7 @@ func _unlocked_nodes() -> PackedStringArray:
 	return out
 
 
-func _to_int_array(v: Variant) -> Array:
+static func _to_int_array(v: Variant) -> Array:
 	var out: Array = []
 	if typeof(v) == TYPE_ARRAY:
 		for x: Variant in (v as Array):
@@ -322,7 +330,7 @@ func _to_int_array(v: Variant) -> Array:
 	return out
 
 
-func _to_string_array(v: Variant) -> PackedStringArray:
+static func _to_string_array(v: Variant) -> PackedStringArray:
 	var out := PackedStringArray()
 	if typeof(v) == TYPE_ARRAY:
 		for x: Variant in (v as Array):
@@ -375,6 +383,103 @@ func verify_determinism(reopen_count: int = 20) -> Dictionary:
 		"REFILL_pending_count": _pending_refills.size(),
 		"REFILL_pass": _refill_roundtrip_ok(),
 	}
+
+
+# ════════════════════════════════════════════════════════════════
+#  P12 背包基线（跨域合成判据）
+# ════════════════════════════════════════════════════════════════
+#
+## 任务书_逻辑组_包B §6：P12 = 「D8 基线：食物≥5 净水≥6 零件 15–25」。
+##
+## 这条是**合成判据**，不是单系统判据——它同时踩三个域：
+##   地图（掉落内容 × 地点）× 背包（24 格容量上限）× 时间（D8 那天能跑几趟）
+## 所以判据本体放 map_system（它掌握掉落与地点），**背包容量以参数注入**——
+## 包 B 白名单禁止横向持有 InventorySystem 引用。
+##
+## 期望值（≥5 / ≥6 / 15–25）是**设计定稿**，写在判据里不取自被测代码。
+
+## P12 判据本体
+## plan_name: data/locations/scavenge_plans.json 里的计划名
+## baseline_min_food / baseline_min_water / baseline_min_parts / baseline_max_parts
+##   —— 期望值由调用方传入（判据不自己写死期望，免得"改实现=改判据"）
+func verify_loot_baseline(plan_name: String, baseline_min_food: int,
+		baseline_min_water: int, baseline_min_parts: int, baseline_max_parts: int) -> Dictionary:
+	_ensure_loaded()
+	var out := {}
+	var plans := _read_dict(_PLAN_PATH)
+	var plan: Dictionary = plans.get(plan_name, {})
+	if plan.is_empty():
+		out["P12_plan_found"] = false
+		out["P12_pass"] = false
+		return out
+	out["P12_plan_found"] = true
+
+	var target_day := int(plan.get("target_day", 8))
+	var cap := int(plan.get("inventory_capacity_units", 24))
+	var visits: Array = plan.get("visits", [])
+
+	# ── 逐地点搜刮：每个掉落点的内容由 loot_point() 决定（位置无关 hash）──
+	var tally := {}       # item_id -> 件数
+	var used_slots := 0   # 背包占用（每件占 1 格）
+	var dropped := 0      # 因背包满而丢弃的件数
+	for v: Variant in visits:
+		if not (v is Dictionary):
+			continue
+		var visit: Dictionary = v
+		var node_id := str(visit.get("node_id", ""))
+		var days := int(visit.get("days", 1))
+		var want_points := int(visit.get("points_per_visit", 0))
+		var layout := generate_layout(StringName(node_id), target_day)
+		var points: Array = layout.get("loot_points", [])
+		# 只能搜到实际存在的点（不能凭空多搜）
+		var take := mini(want_points, points.size())
+		for i in take:
+			# ⚠ 字段名是 `id` 不是 `point_id`——写错会让所有点查不到东西，
+			#   结果是 0 食物 0 净水 0 零件（判据会红，但"红得没道理"，
+			#   排查时容易误判成"数值不对"而不是"代码取错字段"）。
+			var pid := str((points[i] as Dictionary).get("id", ""))
+			for entry: Variant in loot_point(StringName(node_id), StringName(pid), target_day):
+				if not (entry is Dictionary):
+					continue
+				var e: Dictionary = entry
+				var iid := str(e.get("item_id", ""))
+				var n := int(e.get("count", 0))
+				if n <= 0:
+					continue
+				# 背包容量约束：装不下的部分被丢弃（计入 dropped，不计入 tally）
+				var room := cap - used_slots
+				if room <= 0:
+					dropped += n
+					continue
+				var fit := mini(room, n)
+				dropped += n - fit
+				tally[iid] = int(tally.get(iid, 0)) + fit
+				used_slots += fit
+
+	var food := int(tally.get("item_food_can", 0))
+	var water := int(tally.get("item_water_bottle", 0))
+	var parts := int(tally.get("item_parts", 0))
+
+	out["P12_day"] = target_day
+	out["P12_capacity"] = cap
+	out["P12_used_slots"] = used_slots
+	out["P12_dropped"] = dropped
+	out["P12_food"] = food
+	out["P12_water"] = water
+	out["P12_parts"] = parts
+	out["P12_food_ok"] = food >= baseline_min_food
+	out["P12_water_ok"] = water >= baseline_min_water
+	out["P12_parts_ok"] = parts >= baseline_min_parts and parts <= baseline_max_parts
+	# 防空转护栏：背包一格都没满、什么都没捡到 → 判据是空的
+	out["P12_nonempty"] = used_slots > 0
+	# ★ 第二道护栏：点名目标物一件都没有 = 掉落链路断了（不是"数值偏低"）。
+	#   只看 used_slots > 0 不够——捡到一堆杂物、背包满了、目标物 0 件，
+	#   那也是空的判据（且"红得没道理"，容易误判成数值问题）。
+	out["P12_has_target_loot"] = (food + water + parts) > 0
+	out["P12_pass"] = bool(out["P12_food_ok"]) and bool(out["P12_water_ok"]) \
+		and bool(out["P12_parts_ok"]) and bool(out["P12_nonempty"]) \
+		and bool(out["P12_has_target_loot"])
+	return out
 
 
 ## 回填闭环自检：05:00 刷新 → 待回填清单**恰好**等于当天的命中集合 → 玩家到了消费掉
@@ -465,11 +570,11 @@ func room_count(theme: Dictionary) -> int:
 	return maxi(int(theme.get("layout_room_count", 0)), 1)
 
 
-func _theme_of(loc_id: String) -> String:
+static func _theme_of(loc_id: String) -> String:
 	return str((_nodes.get(loc_id, {}) as Dictionary).get("theme_id", ""))
 
 
-func _ensure_loaded() -> void:
+static func _ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
@@ -496,7 +601,7 @@ func _ensure_loaded() -> void:
 		_item_ids[item_id] = true
 
 
-func _read_dict(path: String) -> Dictionary:
+static func _read_dict(path: String) -> Dictionary:
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		push_error("map_system: %s missing" % path)

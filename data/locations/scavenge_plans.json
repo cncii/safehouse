@@ -1,0 +1,30 @@
+{
+  "$schema_note": "阶段 A 搜刮计划表：P12 背包基线判据的输入。判据本体在 src/systems/map_system.gd 的 verify_loot_baseline()（或 inventory 侧），本文件只提供「D8 那天玩家去哪几个点」的蓝图。",
+  "$provisional": "搜刮计划（plan_*）为 PROVISIONAL——设计基线没给「D8 出行策略」，当前按「安全屋为枢纽 + 高频地点优先 + 24 格背包」的常识假设铺一份，签字前不算定稿（缺数 D-B11，见 data/UNDEFINED.md）。",
+
+  "_comment_plan_shape": "plan_* 段：{node_id: 地点 id, days: 去的次数, points_per_visit: 每次搜几个掉落点}。points_per_visit ≤ 该地点的 layout_loot_point_count（超出的是搜不到的）。",
+  "_comment_baseline": "P12 判据的基线（任务书_逻辑组_包B §6 定稿）：D8 累计 食物≥5 净水≥6 零件 15–25。",
+  "_comment_backfill": "D4 起高频地点有回填（locations.json 的 refill_from_day_count），回填后同一地点可再搜——本文件用 revisit_after_refill 表达这一条。",
+
+  "plan_d8_baseline": {
+    "_desc": "D8 基线计划：安全屋周边高频商业 + 一次工业区往返。这是「普通玩家的一天」的最小合理集合。",
+    "visits": [
+      { "node_id": "supermarket", "days": 1, "points_per_visit": 12 },
+      { "node_id": "residential", "days": 1, "points_per_visit": 9 },
+      { "node_id": "hardware_store", "days": 1, "points_per_visit": 14 }
+    ],
+    "target_day": 8,
+    "inventory_capacity_units": 24
+  },
+
+  "plan_d8_full_explore": {
+    "_desc": "D8 充分搜刮计划：把 3 个地点的掉落点全搜一遍（用满 24 格上限的那一版）。用于算 P12 的上界。",
+    "visits": [
+      { "node_id": "supermarket", "days": 1, "points_per_visit": 12 },
+      { "node_id": "residential", "days": 1, "points_per_visit": 9 },
+      { "node_id": "gas_station", "days": 1, "points_per_visit": 14 }
+    ],
+    "target_day": 8,
+    "inventory_capacity_units": 24
+  }
+}

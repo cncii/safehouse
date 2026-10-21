@@ -54,6 +54,7 @@ const ActionTests = preload("res://tests/test_action.gd")
 # tech_tree_system.gd，接线文件由逻辑组补（包 F 若要归档可整体移入其分域机制）。
 const InventoryTests = preload("res://tests/test_inventory.gd")
 const TechRuntimeTests = preload("res://tests/test_tech_runtime.gd")
+const MapLootTests = preload("res://tests/test_map_loot.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
 # 修订 #1：vitals 段 8 条（M2 死钟/M2b/M3/M3b/M4×4）随场景方式修通，75 → 83。
@@ -191,6 +192,16 @@ func _ready() -> void:
 	# 排在后面可避免影响其它域的前置检查（State 是 autoload，全局共享）。
 	InventoryTests.run(self)
 	TechRuntimeTests.run(self)
+	# ── P12 背包基线（跨域合成：掉落 × 容量 × D8 计划）──
+	# ⚠ **暂不挂载**：判据已实现且实跑，但当前是**红的**（真实设计缺口）。
+	#   实测：D8 三个地点总掉落 64 件，背包 24 格装不下 → 丢 25 件；
+	#   净水 4（要 ≥6）零件 4（要 15–25）→ 缺数 D-B11。
+	#   门禁没有"已知红"机制（_block 也计 fail），挂进去会让**整条门禁常挂**，
+	#   污染其它组的信号（他们提交也变红，且不知道为什么）。
+	#   等创意总监给出掉落率/杂物占比/D8 出行计划（缺数 D-B11）后，一行即可挂上。
+	#   判据本体：src/systems/map_system.gd 的 verify_loot_baseline()
+	#   接线文件：tests/test_map_loot.gd（已就绪，摘掉下面这行即可挂）
+	# MapLootTests.run(self)
 
 	_finish()
 
