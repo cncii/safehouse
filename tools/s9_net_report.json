@@ -1,0 +1,52 @@
+﻿{
+    "baseline_count":  584,
+    "guard_scenes_started":  true,
+    "assert_diff_zero":  true,
+    "assert_dns_zero":  true,
+    "assert_outbound_zero":  true,
+    "dns_detail":  [
+
+                   ],
+    "diff_detail":  [
+
+                    ],
+    "generated_at":  "2026-10-21T15:31:54.3378896+08:00",
+    "after_count":  594,
+    "godot_pid_samples":  [
+                              24916,
+                              21380,
+                              15472,
+                              43944,
+                              48704,
+                              48020,
+                              37368,
+                              48696
+                          ],
+    "outbound_detail":  [
+
+                        ],
+    "scenes":  [
+                   {
+                       "scene":  "res://scenes/debug/combat_probe.tscn",
+                       "started":  true,
+                       "summary":  "probe: 45 pass / 45 fail"
+                   },
+                   {
+                       "scene":  "res://scenes/debug/event_probe.tscn",
+                       "started":  true,
+                       "summary":  "probe: 37 pass / 37 fail"
+                   },
+                   {
+                       "scene":  "res://scenes/debug/steam_probe.tscn",
+                       "started":  true,
+                       "summary":  "probe: 12 pass / 12 fail"
+                   },
+                   {
+                       "scene":  "res://scenes/debug/pii_probe.tscn",
+                       "started":  true,
+                       "summary":  "probe: 27 pass / 27 fail"
+                   }
+               ],
+    "note":  "Covers S9 layer 2 \u0027runtime outbound 0 / DNS 0\u0027. The \u0027firewall blocks all outbound and game still fully playable\u0027 part needs a manual run on a test machine; this script does not touch firewall settings.",
+    "guard_sampled_while_alive":  true
+}
