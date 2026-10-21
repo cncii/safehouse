@@ -37,8 +37,10 @@ static func run(host) -> void:
 		return
 
 	# ── P22-0 目录级守护：拆解台前置必须恰好等于全部 L1 key（弱化它 = 必败路径回归）──
-	host._t("TECHRUN-P22-0 dismantle bench guard structure intact (%d problems)"
-		% int(out.get("P22_0_problems", -1)),
+	# 把 problems 的具体描述带进断言名——红时直接看出"弱化了哪个 key"，
+	# 不用回头翻代码猜（判据红得能归因）。
+	host._t("TECHRUN-P22-0 dismantle bench guard structure intact (%s)"
+		% str(out.get("P22_0_problem_detail", "?")),
 		bool(out.get("P22_0_pass", false)))
 
 	# ── P28：节点数 ≥ 24（分母 24）──

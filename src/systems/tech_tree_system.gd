@@ -353,8 +353,12 @@ func verify_tech_tree() -> Dictionary:
 
 	# ── P22-0：拆解台前置恰好等于全部 5 个 L1 key ──
 	var struct_v := validate_tree_structure()
+	var prob_list: PackedStringArray = struct_v.get("problems", PackedStringArray())
 	out["P22_0_structure_ok"] = bool(struct_v.get("ok", false))
-	out["P22_0_problems"] = (struct_v.get("problems", []) as PackedStringArray).size()
+	out["P22_0_problems"] = prob_list.size()
+	# 把问题描述带出来（不只给个数）——判据红时能直接看出"弱化了哪个 key"，
+	# 不用回头翻代码猜。判据红得能归因，是本项目的硬要求。
+	out["P22_0_problem_detail"] = (", ".join(prob_list) if prob_list.size() > 0 else "none")
 	out["P22_0_pass"] = bool(struct_v.get("ok", false))
 
 	# ── P28：24 节点是分母下限 ──
