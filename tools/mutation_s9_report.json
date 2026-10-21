@@ -1,0 +1,82 @@
+[
+  {
+    "id": "S9-M1-inject-outbound",
+    "desc": "注入一条指向外网的 Established 连接（判据 ① 必须抓到并变红）",
+    "expect_red": "assert (1) godot outbound connections == 0",
+    "got": "FAIL",
+    "marks": {
+      "guard: all scenes started & reported": "PASS",
+      "guard: connection table sampled while alive": "PASS",
+      "assert (1) godot outbound connections == 0": "FAIL",
+      "assert (2) godot DNS queries == 0": "PASS",
+      "assert (3) connection table diff == 0": "FAIL"
+    },
+    "captured": true,
+    "no_collateral": true,
+    "note": "判据 ① 必须变红（能抓到注入的出站 = 它有牙） → 捕获 ✓"
+  },
+  {
+    "id": "S9-M2-inject-dns",
+    "desc": "注入一条 UDP 53 的 DNS 查询（判据 ② 必须抓到并变红）",
+    "expect_red": "assert (2) godot DNS queries == 0",
+    "got": "FAIL",
+    "marks": {
+      "guard: all scenes started & reported": "PASS",
+      "guard: connection table sampled while alive": "PASS",
+      "assert (1) godot outbound connections == 0": "PASS",
+      "assert (2) godot DNS queries == 0": "FAIL",
+      "assert (3) connection table diff == 0": "FAIL"
+    },
+    "captured": true,
+    "no_collateral": true,
+    "note": "判据 ② 必须变红 → 捕获 ✓"
+  },
+  {
+    "id": "S9-M3-inject-new-conn",
+    "desc": "注入一条基线里没有的游戏进程连接（判据 ③ 差集必须非空并变红）",
+    "expect_red": "assert (3) connection table diff == 0",
+    "got": "FAIL",
+    "marks": {
+      "guard: all scenes started & reported": "PASS",
+      "guard: connection table sampled while alive": "PASS",
+      "assert (1) godot outbound connections == 0": "PASS",
+      "assert (2) godot DNS queries == 0": "PASS",
+      "assert (3) connection table diff == 0": "FAIL"
+    },
+    "captured": true,
+    "no_collateral": true,
+    "note": "判据 ③ 必须变红 → 捕获 ✓"
+  },
+  {
+    "id": "S9-M4-scene-start-fails",
+    "desc": "让游戏场景启动失败（护栏 ① 必须变红——否则假绿无从察觉）",
+    "expect_red": "guard: all scenes started & reported",
+    "got": "FAIL",
+    "marks": {
+      "guard: all scenes started & reported": "FAIL",
+      "guard: connection table sampled while alive": "PASS",
+      "assert (1) godot outbound connections == 0": "PASS",
+      "assert (2) godot DNS queries == 0": "PASS",
+      "assert (3) connection table diff == 0": "PASS"
+    },
+    "captured": true,
+    "no_collateral": true,
+    "note": "护栏 ① 必须变红（场景没跑起来 → 判据必须知道） → 捕获 ✓"
+  },
+  {
+    "id": "S9-M5-guard-always-passes",
+    "desc": "护栏 ① 恒真（护栏本身失效 → 场景没跑起来也照样全 PASS）",
+    "skipped": "combo-only",
+    "captured": true,
+    "no_collateral": true
+  },
+  {
+    "id": "COMBO-S9-M5-guard-always-passes+S9-M4-scene-start-fails",
+    "desc": "场景启动失败 + 护栏恒真（验证护栏是唯一防线）",
+    "combo": true,
+    "all_pass": true,
+    "captured": true,
+    "no_collateral": true,
+    "note": "→ 护栏缺口成立：判据全 PASS 但场景根本没跑（假绿从缺口溜过去）"
+  }
+]
