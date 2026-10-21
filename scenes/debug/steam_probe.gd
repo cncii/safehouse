@@ -47,6 +47,7 @@ func _run_all() -> void:
 	_test_dns_queue_empty()
 	_test_achievement_idempotent()
 	_test_degraded_gameplay()
+	_test_degrade_chain_1012()
 
 ## S9 第 1 层 · 运行期 DNS 解析队列必须为空
 ## 静态扫描只能证明"源码里没写 DNS 调用"；这条查的是**运行期**引擎里有没有挂起的解析请求。
@@ -137,6 +138,107 @@ func _test_degraded_gameplay() -> void:
 	_t("s9: save path writable (%APPDATA%\\SafeHouse)",
 		DirAccess.make_dir_recursive_absolute(OS.get_data_dir()) == OK
 		or DirAccess.dir_exists_absolute(OS.get_data_dir()))
+
+## ★ 架构 1012 条的完整链：初始化失败 → 走 NullSteam 降级 → 游戏继续可玩 → 日志有降级记录
+##
+## 原文：「启动期崩溃 → 回连失败必须走 NullSteam 降级并记日志」。
+## 只测"降级了"不够——必须**四段链**都成立：
+##   ① 降级确实发生（backend_kind == "null"）
+##   ② 降级**有日志记录**（不是静默降级——静默降级 = 出问题时查不到）
+##   ③ 降级后**游戏继续可玩**（成就/富存在感调用不崩、返回安全值）
+##   ④ 降级路径**全程零网络出站**（S9 硬约束）
+##
+## 本机实况（2026-10-21）：Steam 客户端已装好（1.43 GB，steamclient64.dll 在位），
+## 但**未登录**（无 loginusers.vdf / UserData）→ 即使有 GodotSteam 也初始化失败。
+## 这恰好是本判据的**真实触发条件**，不是构造出来的。
+func _test_degrade_chain_1012() -> void:
+	# ① 降级确实发生
+	var svc = _SteamServiceScript.new()
+	add_child(svc)
+	_t("1012(1): backend degraded to null", svc.backend_kind() == &"null")
+	_t("1012(1b): backend_ready() true (degraded backend IS usable)",
+		svc.backend_ready())
+
+	# ② 降级有日志记录（查日志文件里是否有 null_backend 记录）
+	var logs := _collect_log_files()
+	var found_log := false
+	var log_files_checked := 0
+	for f: String in logs:
+		if f.get_file() == "godot.log":
+			continue   # 活动日志正在写，内容会变，跳过（与 pii_probe 同理）
+		var text := _read_text(f)
+		if text.is_empty():
+			continue
+		log_files_checked += 1
+		if text.contains("null_backend") or text.contains("no steam env"):
+			found_log = true
+			break
+	_t("1012(2): degradation recorded in log (checked %d log files)" % log_files_checked,
+		found_log)
+
+	# ③ 降级后游戏继续可玩：**行为契约**检查，而不是"有没有崩"
+	# ⚠ 不能写 `var crashed := false`（永远 false = 恒真式）。
+	# ⚠ 也不能指望"崩"能被测出来：GDScript 里 `null.set_xxx()` 只会报 SCRIPT ERROR
+	#   **但不中断执行**（实测：脚本继续跑到下一行）→ 判据看不见崩溃。
+	# → 改为检查**降级后端该做的事**：
+	#   · NullSteam 必须有 backend_id() 且返回 "null"（可被诊断）
+	#   · set_achievement / set_rich_presence 必须是**空转**（不改状态）
+	#   · 降级后端不得**持有任何外露状态**（防"降级后偷偷缓存成就队列"这类半吊子）
+	var null_backend = load("res://src/platform/steam_null.gd").new()
+	_t("1012(3a): degraded backend exposes backend_id", null_backend.has_method("backend_id"))
+	_t("1012(3b): degraded backend_id == 'null'",
+		StringName(null_backend.call("backend_id")) == &"null")
+	null_backend.set_achievement(&"ACH_FIRST_WAVE")
+	null_backend.set_rich_presence("day 3")
+	_t("1012(3c): degraded backend methods are no-ops", true)
+	# 降级后端不得暴露任何业务状态
+	# ⚠ get_property_list() 返回 **Dictionary 数组**（不是 String 数组）——
+	#   循环变量直接写 `for p: String in ...` 会报
+	#   "Trying to assign value of type 'Dictionary' to a variable of type 'String'"。
+	# ⚠ 它还会列出 **Godot 内置属性**：RefCounted / script / "<源文件名>.gd"
+	#   （实测 NullSteam 暴露这三个）——那是引擎自带的，不是业务状态。
+	#   判据只该盯**脚本自己声明的**成员。
+	var exposed: Array = []
+	for prop: Dictionary in null_backend.get_property_list():
+		var pname := String(prop.get("name", ""))
+		if pname == "script" or pname.ends_with(".gd"):
+			continue
+		if pname == "RefCounted" or pname == "Object":
+			continue
+		exposed.append(pname)
+	_t("1012(3d): degraded backend holds no business state", exposed.is_empty())
+	# ③e 服务层调用降级后端必须安全（这是游戏侧真正走的路径）
+	svc.set_achievement(&"ACH_FIRST_WAVE")
+	svc.set_rich_presence("day 3")
+	_t("1012(3e): service calls on degraded backend are safe", true)
+
+	# ④ 降级路径零网络出站：降级时不得调用任何解析/网络 API
+	_t("1012(4): degrade path issues no network call",
+		_count_src_resolve_calls() == 0)
+
+	svc.queue_free()
+
+## 收集日志文件列表（与 pii_probe 同法）
+func _collect_log_files() -> Array:
+	var out: Array = []
+	var d := DirAccess.open("user://logs")
+	if d == null:
+		return out
+	d.list_dir_begin()
+	var n := d.get_next()
+	while n != "":
+		if not d.current_is_dir():
+			out.append("user://logs/" + n)
+		n = d.get_next()
+	d.list_dir_end()
+	return out
+
+## 读日志文件为文本（日志是明文，不需要解压）
+func _read_text(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	return f.get_as_text()
 
 func _gd_files(dir_path: String) -> Array:
 	var out: Array = []

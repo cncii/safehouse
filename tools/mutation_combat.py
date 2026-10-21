@@ -37,7 +37,7 @@ GODOT = os.environ.get("GODOT_BIN") or r"C:\Users\CQY\.workbuddy\binaries\godot\
 PROBE_ASSERTS = {
     "combat": 45,
     "event": 37,
-    "steam": 12,
+    "steam": 21,
     "pii": 27,
 }
 
@@ -243,7 +243,10 @@ MUTANTS = [
         "new": '\t\tpass  # MUTATED C10: no degrade',
         "probe": "steam",
         "target": ["s9: backend resolved", "s9: backend_kind reports 'null'"],
-        "chain_ok": ["s9: NullSteam calls are safe no-ops"],
+        "chain_ok": ["s9: NullSteam calls are safe no-ops",
+                     "1012(1): backend degraded to null",
+                     "1012(1b): backend_ready() true",
+                     "1012(2): degradation recorded in log"],
         "expect": "应红降级族——S 构建硬要求",
     },
     {
@@ -268,7 +271,57 @@ MUTANTS = [
         "chain_ok": ["save.sav PII hits == 0"],
         "expect": "★ 关键：不解压就扫 → 存档内容根本读不到 → 判据必须变红（防空转假绿）",
     },
+    {
+        "id": "C13-degrade-silent",
+        "desc": "降级不记日志（静默降级——架构 1012 要求必须记日志）",
+        "file": "src/platform/steam_service.gd",
+        "old": '\tLogger.log("steam", "null_backend", reason, null, "no steam env / init failed, NullSteam fallback")',
+        "new": '\tpass   # MUTATED C13: silent degradation (no log)',
+        "probe": "steam",
+        "target": ["1012(2): degradation recorded in log"],
+        "chain_ok": [],
+        "expect": "应红 1012(2)——静默降级 = 出问题查不到",
+    },
+    {
+        "id": "C14-degrade-no-backend",
+        "desc": "降级不建立后端（backend 保持 null → 游戏不可玩）",
+        "file": "src/platform/steam_service.gd",
+        "old": '\t_backend = load(NULL_PATH).new()',
+        "new": '\tpass   # MUTATED C14: backend stays null',
+        "probe": "steam",
+        "target": ["1012(1b): backend_ready() true"],
+        "chain_ok": ["s9: backend resolved", "s9: backend_kind reports",
+                     "s9: NullSteam calls are safe no-ops",
+                     "1012(1): backend degraded to null",
+                     "1012(2): degradation recorded in log"],
+        "expect": "应红 1012(1b) 与 s9 降级族——降级后必须**有可用后端**",
+    },
+    {
+        "id": "C15-degrade-bad-id",
+        "desc": "降级后端 backend_id 返错值（诊断口径坏了——UI/日志会说错后端类型）",
+        "file": "src/platform/steam_null.gd",
+        "old": 'func backend_id() -> StringName:\n\treturn &"null"',
+        "new": 'func backend_id() -> StringName:\n\treturn &"steam"   # MUTATED C15: lies about backend',
+        "probe": "steam",
+        "target": ["1012(3b): degraded backend_id == 'null'"],
+        # 同因连锁：backend_id 返错值 → 三条判据测的都是"后端自报类型"这同一性质
+        "chain_ok": ["s9: backend_kind reports 'null' without Steam",
+                     "1012(1): backend degraded to null"],
+        "expect": "应红 1012(3b)——降级后端必须自报 'null'",
+    },
+    {
+        "id": "C16-degrade-holds-state",
+        "desc": "降级后端偷偷持有状态（降级不是空转 = 成就队列会丢）",
+        "file": "src/platform/steam_null.gd",
+        "old": 'class_name SteamNull\nextends RefCounted',
+        "new": 'class_name SteamNull\nextends RefCounted\n\nvar _pending: Array = []   # MUTATED C16: degraded backend holds state',
+        "probe": "steam",
+        "target": ["1012(3d): degraded backend holds no business state"],
+        "chain_ok": [],
+        "expect": "应红 1012(3d)——降级后端必须无状态（否则成就队列会静默丢）",
+    },
 ]
+
 
 
 def main():
@@ -311,6 +364,12 @@ def main():
                 return any(c in name for c in mu["chain_ok"])
 
             captured = any(in_target(r) for r in reds)
+            # 探针被中断（崩溃）时：目标判据没红，但断言数变少 → 也是捕获。
+            # 判据本体写作"调用后还能继续执行"，崩溃就等于这条判据不成立。
+            if not captured and size_changed and total < expect_total:
+                captured = True
+                print(f"  → 探针在目标断言前中断（断言数 {total} < {expect_total}）"
+                      f"= 目标判据因崩溃而不成立，判为捕获")
             collateral = [r for r in reds if not (in_target(r) or in_chain(r))]
             no_collateral = captured and not collateral
             note = mu["expect"]

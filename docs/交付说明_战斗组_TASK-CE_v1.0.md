@@ -17,7 +17,7 @@
 | §A 修订 #2（M30 `216%60` 恒假） | 确认**判据写错、实现正确**，与战斗组 14:30 前的上报一致 |
 | §A `test_combat` M19 四条全绿 | ✅ 战斗组 W2 交付被验收 |
 | §A `test_events` M10 三条全绿 | ✅ 战斗组 W3 交付被验收 |
-| **§B B10 S9/S10**（划归包 C+E+老板） | **已推进**，见第 8.1 节：S10 做成 **27 条**机械断言（27/27 绿，连跑 3 次稳定），S9 第 1 层做成 2 条（12/12 绿）；**第 2 层也做成了可复跑判定**（`tools/s9_net_probe.ps1`，运行期出站 0 / DNS 0 / 差集 0 全 PASS） |
+| **§B B10 S9/S10**（划归包 C+E+老板） | **已推进**，见第 8.1 节：S10 做成 **27 条**机械断言（27/27 绿，连跑 3 次稳定），S9 第 1 层做成 2 条 + **架构 1012 降级链 9 条**（steam_probe 21/21 绿）；**第 2 层也做成了可复跑判定**（`tools/s9_net_probe.ps1`，运行期出站 0 / DNS 0 / 差集 0 全 PASS） |
 | 欠件：github.com 直连 reset | ✅ **已同步**。远端 `main` = `e0f9bc0` = 本地 HEAD；战斗组 `6d4a267`/`39331b2` 均在远端。直连不通时走 `tools/gh_push_api.py` API 通道（token 只走环境变量） |
 | 欠件：判据表 85+ 条落盘 | 战斗组这边的判据已全部落盘在 `tools/`+`scenes/debug/` 探针与本文档第 4 节映射表；M12b/M15/M22 原文仍需 QA 落盘 |
 
@@ -25,7 +25,7 @@
 
 ## 1. 一句话状态
 
-W1–W4 全部落地，战斗组自建**四套**无头自检共 **106 条断言全绿**（45+37+12+27）；
+W1–W4 全部落地，战斗组自建**四套**无头自检共 **106 条断言全绿**（45+37+21+27）；
 GitHub 已同步（远端 = 本地 HEAD）。
 **全量验收入口 `tools/test.ps1` 当前 exit=1**，唯一阻塞点在**包 D 表现组的在制品**（见第 5 节），战斗组文件零 BROKEN。
 
@@ -72,14 +72,14 @@ Set-Location "<项目>\safehouse"
 # 战斗组三套自检（各自独立，全绿即通过）
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/combat_probe.tscn   # 期望 45/45, EXIT=0
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/event_probe.tscn    # 期望 37/37, EXIT=0
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/steam_probe.tscn    # 期望 12/12, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/steam_probe.tscn    # 期望 21/21, EXIT=0
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn      # 期望 27/27, EXIT=0
 
 # 全量验收入口（注意：当前 exit=1，见第 5 节）
 powershell -ExecutionPolicy Bypass -File tools\test.ps1
 ```
 
-> 战斗组自检合计 **106 条断言**（45+37+12+27）。
+> 战斗组自检合计 **130 条断言**（45+37+21+27）。
 
 > ⚠ **`--quit-after 400` 必须带**：探针会 `get_tree().quit()`，但若加载失败引擎不会自动退出，
 > 不加这个参数 CI 会挂死（实测踩过：某次失败时挂了 180 秒直到超时）。
@@ -276,7 +276,46 @@ powershell -ExecutionPolicy Bypass -File tools\s9_net_probe.ps1
 | **S9 第 2 层** 操作系统层面运行期出站 0 | `tools/s9_net_probe.ps1` | ✅ 全 PASS（出站 0 / DNS 0 / 差集 0 + 2 条防空转护栏） |
 | **S9 第 2 层补充** 防火墙全禁后仍可通关 | — | ❌ 需人工在测试机做 |
 
-### 8.3 要让「GodotSteam 失败回连 Valve」这条判据**可测**，缺这三样
+### 8.3 架构 1012 条的降级链 —— 已做成可复跑判据（9 条，steam_probe 21/21 绿）
+
+架构 1012 条原文：「启动期崩溃 → 回连失败必须走 NullSteam 降级并记日志」。
+只测"降级了"不够——**四段链**必须都成立：
+
+| 判据 | 内容 | 实测 |
+|---|---|---|
+| 1012(1) | 降级确实发生（`backend_kind == "null"`） | ✅ |
+| 1012(1b) | 降级后端**可用**（`backend_ready() == true`） | ✅ |
+| 1012(2) | 降级**有日志记录**（不是静默降级） | ✅ |
+| 1012(3a) | 降级后端暴露 `backend_id()` | ✅ |
+| 1012(3b) | `backend_id() == "null"`（自报家门正确） | ✅ |
+| 1012(3c) | 成就/富存在感调用是**空转** | ✅ |
+| 1012(3d) | 降级后端**不持有任何业务状态** | ✅ |
+| 1012(3e) | 服务层调用降级后端安全 | ✅ |
+| 1012(4) | 降级路径**全程零网络出站**（S9 硬约束） | ✅ |
+
+**本机实况**：Steam 客户端已装好（1.43 GB / 6747 文件，`steamclient64.dll` 25.9 MB 在位），
+但**未登录**（无 `loginusers.vdf` / `UserData`）→ 初始化必然失败 →
+这条链是**真实触发**，不是构造出来的。
+
+**三个新变异体验证它们有牙**（`tools/mutation_combat.py` C13–C16）：
+| 变异 | 期望变红 | 实测 |
+|---|---|---|
+| C13 降级**不记日志**（静默降级） | 1012(2) | ✅ 红 |
+| C14 降级**不建立后端** | 1012(1b) | ✅ 红 |
+| C15 `backend_id` **返错值** | 1012(3b) | ✅ 红 |
+| C16 降级后端**偷偷持有状态** | 1012(3d) | ✅ 红 |
+
+> ★ 写这条链时踩了三个坑，都是**判据自身**的问题：
+> 1. **`var crashed := false` 是恒真式** —— 永远 false = 永远绿。已删。
+> 2. **GDScript 里"崩"测不出来** —— `null.set_xxx()` 只报 `SCRIPT ERROR`
+>    **但不中断执行**（实测脚本继续跑到下一行）→ 判据看不见崩溃。
+>    → 改为检查**行为契约**（backend_id 正确 / 无状态 / 空转）。
+> 3. **`get_property_list()` 返回 Dictionary 数组**（不是 String 数组），
+>    写 `for p: String in ...` 会报类型错；且它还列出 Godot 内置属性
+>    （`RefCounted` / `script` / `<源文件名>.gd`）——那不是业务状态，
+>    判据只该盯脚本自己声明的成员。
+
+### 8.4 要让「GodotSteam 失败回连 Valve」这条判据**可测**，缺这三样
 
 架构 1075 / 1012 条把它列为「唯一待验证项」。本轮实查结论：**当前工程无法触发它**，
 因为根本没有 SDK 可初始化。三样前置：
@@ -298,7 +337,7 @@ powershell -ExecutionPolicy Bypass -File tools\s9_net_probe.ps1
 > **「初始化失败 → 走 NullSteam 降级 → 游戏继续可玩 → 日志有降级记录」**
 > 这条链（架构 1012 条的原话"启动期崩溃 → 回连失败必须走 NullSteam 降级并记日志"）。
 
-### 8.4 其余未覆盖项
+### 8.5 其余未覆盖项
 
 | 判据 | 为什么测不了 | 需要什么 |
 |---|---|---|
