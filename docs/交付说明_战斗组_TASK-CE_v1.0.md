@@ -283,9 +283,13 @@ powershell -ExecutionPolicy Bypass -File tools\s9_net_probe.ps1
 
 | # | 缺什么 | 现状（实查） | 谁做 |
 |---|---|---|---|
-| 1 | **Steam 客户端装完整** | `C:\Program Files (x86)\Steam` 只有启动器（39 文件 / 14.6 MB），**缺** `steamclient64.dll` / `steam_api64.dll` / `bin\steamerrorreporter.exe`。启动后卡在登录界面等**用户交互**，联网自更新没跑完 | 老板/测试组：跑一次登录让 Steam 自更新完 |
+| 1 | **Steam 客户端装完整** | `C:\Program Files (x86)\Steam` 只有启动器（39 文件 / 14.6 MB），**缺** `steamclient64.dll` / `steam_api64.dll` / `bin\steamerrorreporter.exe`。用 `Start-Process` 启动后进程存活一小会儿即退出，**webhelper 从未启动** → 卡在登录界面等**用户交互**，联网自更新没跑完 | **老板/测试组：手动打开 Steam 并登录一次**，让它把组件下载完（登录后应看到 `steamclient64.dll` 出现） |
 | 2 | **GodotSteam GDExtension 4.3.x** | 工程 `addons/` 为空，**无任何 `.gdextension` 文件**。架构要求「版本与 Godot 强绑定（4.3.x 配 4.3.x）并写进 `docs/architecture.md` 锁定」 | 包 E / 架构侧 |
 | 3 | **`src/platform/steam_binding.gd`** | 不存在。`steam_service.gd` 已按"文件缺失也要安全降级"写好（不崩、走 NullSteam），但**没有 binding 就永远走降级路径** | 包 E |
+
+> ⚠ 排查提示：Steam 启动后本机有进程在连 `111.31.2.250:443`（Steam 更新服务器），
+> 但那是 **WorkBuddy 自己**（PID 49124 = `WorkBuddy.exe`），不是 Steam 在下载。
+> Steam 侧**确实没有**任何下载行为 → 它根本没进入自更新阶段。
 
 补齐后，`steam_service._try_init_godotsteam()` 的判定口径**已经就绪**：
 只查 `ClassDB.class_exists("Steam")`，**不发任何网络请求**（S9 零出站要求连探测 SDK 都不能连网）。
