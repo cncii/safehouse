@@ -95,6 +95,30 @@ func _test_w1_iframe() -> void:
 	var landed := _combat.on_hit_received(12.0)
 	_t("w1: hit after iframe lands with hitstun", (not bool(landed.get("blocked", true))) and int(landed.get("hitstun", -1)) == TimeSystem.HITSTUN_TICKS)
 	_t("w1: hp reduced after iframe", float(State.read("player.hp")) < hp0)
+	_test_iframe_exact_frames()
+
+## ★ 无敌帧**具体帧数**锚定（变异测试 C1 逼出来的）
+##
+## 变异实测：把 IFRAMES_TICKS 9→8，上面 5 条判据**一条都没红**——
+## 因为它们全是**相对行为**断言（"闪避期间伤害被格挡""闪避结束后伤害落地"），
+## 帧数从 9 变 8 行为仍然自洽 → 全绿 = 判据抓不到东西。
+## → 判据必须锚定**具体值**，不只是锚定"行为一致"。
+##   锚点：架构 C28 定稿「无敌 9 帧 = 0.15 s」（60fps），且与 time.json 的秒值镜像一致。
+func _test_iframe_exact_frames() -> void:
+	# ① 帧数定稿值锚定（9 帧）
+	_t("w1: IFRAMES_TICKS == 9 (C28 定稿值)", TimeSystem.IFRAMES_TICKS == 9)
+	# ② 帧数↔秒值双向锚定（9 帧 / 60fps = 0.15 s）
+	_t("w1: IFRAMES_TICKS/60 == 0.15 sec (C28-b 帧秒一致)",
+		is_equal_approx(float(TimeSystem.IFRAMES_TICKS) / 60.0, 0.15))
+	# ③ 实测：翻滚后第 8 帧仍在无敌、第 9 帧已失效（边界恰在 9，不多不少）
+	_combat.debug_reset_combat()
+	_combat.debug_reset_vitals()
+	_combat.player_dodge(Vector2.RIGHT)
+	for i in range(TimeSystem.IFRAMES_TICKS - 1):
+		_combat.tick()
+	_t("w1: iframe still active on frame 8 (of 9)", _combat.is_iframe_active())
+	_combat.tick()
+	_t("w1: iframe expired exactly on frame 9", not _combat.is_iframe_active())
 
 func _test_w2_materialize() -> void:
 	var p1 := _combat.materialize_wave_plan(1, 8)

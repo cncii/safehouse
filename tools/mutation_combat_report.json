@@ -1,0 +1,165 @@
+[
+  {
+    "id": "C1-iframe-frames",
+    "desc": "无敌帧 IFRAMES_TICKS 9→8（TimeSystem 权威常量，战斗组读它）",
+    "file": "src/systems/time_system.gd",
+    "probe": "combat",
+    "red": [
+      "w1: IFRAMES_TICKS == 9 (C28 定稿值)",
+      "w1: IFRAMES_TICKS/60 == 0.15 sec (C28-b 帧秒一致)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红无敌帧族——R5 手感核心判据 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C2-strength-curve",
+    "desc": "夜7 强度乘数 2.32→2.0（waves.json 曲线脱钩）",
+    "file": "data/events/waves.json",
+    "probe": "combat",
+    "red": [
+      "w2: night7 strength == 2.32"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红夜7 强度锚点 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C3-night1-count",
+    "desc": "夜1 batch0 数量 3→4（waves.json 波次规模改了）",
+    "file": "data/events/waves.json",
+    "probe": "combat",
+    "red": [
+      "w2: night1 slot total == 5",
+      "w2(M19): slot count stable == 5",
+      "w2: all batches killed -> cleared",
+      "w2: batches_progress == 2/2",
+      "w2: batch progress independent of kill order"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红夜1 slot 总数——但**不能**红 M19 逐项相等（物化仍自洽） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C4-batch-merge",
+    "desc": "batch 计数改为 1（多 batch 波次被压成单 batch——防「召唤池抽干提前过关」）",
+    "file": "src/systems/combat_system.gd",
+    "probe": "combat",
+    "red": [
+      "w2: night1 batch_count == 2",
+      "w2: batches_progress == 2/2"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 batch 族——架构风险登记 #1 的守护判据 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C5-materialize-gh",
+    "desc": "物化时刻锚点 18.0→19.0（M19 锚点漂移）",
+    "file": "src/systems/combat_system.gd",
+    "probe": "combat",
+    "red": [
+      "w2: materialized_gh == 18.0 (M19 anchor)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 M19 物化时刻锚点（18:00±1 帧） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C6-event-impact-guard",
+    "desc": "事件 impact 白名单放开（加第 5 类 'script'——M10 封闭集被破坏）",
+    "file": "src/systems/event_system.gd",
+    "probe": "event",
+    "red": [
+      "m10: illegal impact kind rejected",
+      "m10: illegal impact not written to log"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 M10 封闭集判据 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C7-idempotency-off",
+    "desc": "幂等键查重失效（破 _fire() 内层查重——所有路径的必经之地）",
+    "file": "src/systems/event_system.gd",
+    "probe": "event",
+    "red": [
+      "p9: duplicate key does not re-apply effect",
+      "p9: duplicate key does not duplicate log entry",
+      "p10: restored log blocks re-fire (rollback diff=0)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 P9 幂等族（破内层查重 → 同键重复发放） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C8-append-only-log",
+    "desc": "事件日志不再 append（重放将无历史可依——C17 append-only 被破坏）",
+    "file": "src/systems/event_system.gd",
+    "probe": "event",
+    "red": [
+      "p8: two distinct slots produce two log entries",
+      "p9: duplicate key does not re-apply effect",
+      "p9: duplicate key does not duplicate log entry",
+      "p9: public fire() logs exactly one entry",
+      "p9: public fire() duplicate key does not re-apply effect",
+      "save: event_log persisted non-empty",
+      "p10: restored log blocks re-fire (rollback diff=0)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 C17 日志族——同一天重开不再靠日志回放 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C9-condition-guard",
+    "desc": "条件谓词 all() 短路失效（只看第一个叶子——结构化谓词退化为单条件）",
+    "file": "src/systems/event_system.gd",
+    "probe": "event",
+    "red": [
+      "cond: all() false when FIRST leaf true but second false"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红 all() 短路判据——只看首叶子时全 true 的用例仍过（验证明这条不是恒真式） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C10-steam-degrade",
+    "desc": "NullSteam 降级被绕过（backend 不建立——S 构建要求脱离 Steam 可运行）",
+    "file": "src/platform/steam_service.gd",
+    "probe": "steam",
+    "red": [
+      "s9: backend resolved (NullSteam fallback)",
+      "s9: backend_kind reports 'null' without Steam",
+      "s9: NullSteam calls are safe no-ops"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红降级族——S 构建硬要求 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C11-pii-scanner-weakened",
+    "desc": "PII 扫描器的绝对路径检测被去掉（S10 判据被架空）",
+    "file": "scenes/debug/pii_probe.gd",
+    "probe": "pii",
+    "red": [
+      "s10(control): scanner detects 'Users' token alone (no drive letter)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红反向对照——扫描器抓不到绝对路径时必须变红，否则 S10 是摆设 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C12-pii-gzip-skip",
+    "desc": "存档不解压就扫（GZIP 假绿——明文 grep 永远 0 命中）",
+    "file": "scenes/debug/pii_probe.gd",
+    "probe": "pii",
+    "red": [
+      "s10: user://save.sav decompressed to parsable JSON (not raw gzip bytes)",
+      "s10: user://profile.sav decompressed to parsable JSON (not raw gzip bytes)",
+      "s10: user://save.sav.bak decompressed to parsable JSON (not raw gzip bytes)"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "★ 关键：不解压就扫 → 存档内容根本读不到 → 判据必须变红（防空转假绿） → 捕获 ✓ 且无误伤 ✓"
+  }
+]

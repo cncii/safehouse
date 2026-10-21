@@ -61,6 +61,18 @@ func _test_scanner_detects_pii() -> void:
 	_t("s10(control): scanner detects hostname in known-bad sample", host == "" or hits.has("hostname"))
 	_t("s10(control): scanner detects username in known-bad sample", user == "" or hits.has("username"))
 	_t("s10(control): scanner detects abs path in known-bad sample", hits.has("abspath"))
+	# ★ 变异测试 C11 逼出来的：对照样本必须**只含被测的那一个 token**。
+	#   原样本 "leak C:\Users\bob\x" 同时含 `C:\` 和 `Users\`——变异只去掉 `Users\`
+	#   时 `C:\` 仍命中 → 判据不红。改成不含盘符的纯 `Users\` 片段，
+	#   去掉该 token 就真的抓不到了。
+	#   这与「Dictionary 保序」「插入顺序必须逆着被测优先级」同类：
+	#   用例必须精确对准被测的那一个性质。
+	_t("s10(control): scanner detects 'Users' token alone (no drive letter)",
+		_scan_text("leak Users\\bob\\x").has("abspath"))
+	_t("s10(control): scanner detects 'C:' drive token alone",
+		_scan_text("leak C:\\bob\\x").has("abspath"))
+	_t("s10(control): scanner detects 'AppData' path token alone",
+		_scan_text("leak D:\\AppData\\Roaming\\x").has("abspath"))
 	# 修假阳性后仍必须能抓到**路径形态**的 AppData/Users（别把判据改弱了）
 	var path_sample := "leaked C:\\Users\\%s\\AppData\\Roaming\\SafeHouse\\save.sav" % user
 	_t("s10(control): scanner still detects Users\\AppData path form",
@@ -80,6 +92,16 @@ func _test_save_no_pii() -> void:
 		if text.is_empty():
 			_t("s10: %s readable (non-empty)" % path, false)
 			continue
+		# ★★ 防空转护栏（变异测试 C12 逼出来的）：存档是 **GZIP**，不解压读到的是二进制乱码。
+		#   乱码非空 → 旧写法直接跳过判据 → "0 命中"恒真 = **假绿**。
+		#   → 必须验证读到的确实是**可解析的 JSON 存档**，否则判红。
+		#   这与包 F 的「三层空跑判负」同源：判据要有牙，先得确认它有东西可咬。
+		if path.ends_with(".sav") or path.ends_with(".sav.bak"):
+			var parsed: Variant = JSON.parse_string(text)
+			_t("s10: %s decompressed to parsable JSON (not raw gzip bytes)" % path,
+				typeof(parsed) == TYPE_DICTIONARY)
+			if typeof(parsed) != TYPE_DICTIONARY:
+				continue
 		var hits := _scan_text(text)
 		_t("s10: %s PII hits == 0 (got %d)" % [path, hits.size()], hits.is_empty())
 		if not hits.is_empty():

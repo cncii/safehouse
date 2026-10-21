@@ -17,7 +17,7 @@
 | §A 修订 #2（M30 `216%60` 恒假） | 确认**判据写错、实现正确**，与战斗组 14:30 前的上报一致 |
 | §A `test_combat` M19 四条全绿 | ✅ 战斗组 W2 交付被验收 |
 | §A `test_events` M10 三条全绿 | ✅ 战斗组 W3 交付被验收 |
-| **§B B10 S9/S10**（划归包 C+E+老板） | **已推进**，见第 8.1 节：S10 做成 **21 条**机械断言（21/21 绿，连跑 3 次稳定），S9 第 1 层做成 2 条（12/12 绿）；第 2 层（OS 层面出站 0）仍需外部工具 |
+| **§B B10 S9/S10**（划归包 C+E+老板） | **已推进**，见第 8.1 节：S10 做成 **27 条**机械断言（27/27 绿，连跑 3 次稳定），S9 第 1 层做成 2 条（12/12 绿）；第 2 层（OS 层面出站 0）仍需外部工具 |
 | 欠件：github.com 直连 reset | ✅ **已同步**。远端 `main` = `e0f9bc0` = 本地 HEAD；战斗组 `6d4a267`/`39331b2` 均在远端。直连不通时走 `tools/gh_push_api.py` API 通道（token 只走环境变量） |
 | 欠件：判据表 85+ 条落盘 | 战斗组这边的判据已全部落盘在 `tools/`+`scenes/debug/` 探针与本文档第 4 节映射表；M12b/M15/M22 原文仍需 QA 落盘 |
 
@@ -25,7 +25,7 @@
 
 ## 1. 一句话状态
 
-W1–W4 全部落地，战斗组自建**四套**无头自检共 **106 条断言全绿**（41+33+12+21）；
+W1–W4 全部落地，战斗组自建**四套**无头自检共 **106 条断言全绿**（45+37+12+27）；
 GitHub 已同步（远端 = 本地 HEAD）。
 **全量验收入口 `tools/test.ps1` 当前 exit=1**，唯一阻塞点在**包 D 表现组的在制品**（见第 5 节），战斗组文件零 BROKEN。
 
@@ -70,16 +70,16 @@ $env:GODOT_BIN = "C:\Users\CQY\.workbuddy\binaries\godot\4.3\Godot_v4.3-stable_w
 Set-Location "<项目>\safehouse"
 
 # 战斗组三套自检（各自独立，全绿即通过）
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/combat_probe.tscn   # 期望 41/41, EXIT=0
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/event_probe.tscn    # 期望 33/33, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/combat_probe.tscn   # 期望 45/45, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/event_probe.tscn    # 期望 37/37, EXIT=0
 & $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/steam_probe.tscn    # 期望 12/12, EXIT=0
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn      # 期望 21/21, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn      # 期望 27/27, EXIT=0
 
 # 全量验收入口（注意：当前 exit=1，见第 5 节）
 powershell -ExecutionPolicy Bypass -File tools\test.ps1
 ```
 
-> 战斗组自检合计 **106 条断言**（41+33+12+21）。
+> 战斗组自检合计 **106 条断言**（45+37+12+27）。
 
 > ⚠ **`--quit-after 400` 必须带**：探针会 `get_tree().quit()`，但若加载失败引擎不会自动退出，
 > 不加这个参数 CI 会挂死（实测踩过：某次失败时挂了 180 秒直到超时）。
@@ -207,10 +207,10 @@ BROKEN  res://tests/run_tests.gd:75
 
 ### 8.1 B10 进展（S9/S10）
 
-**S10 PII 扫描 —— 已做成可复跑机械判定，新增 `scenes/debug/pii_probe.tscn`，21/21 全绿。**
+**S10 PII 扫描 —— 已做成可复跑机械判定，新增 `scenes/debug/pii_probe.tscn`，27/27 全绿。**
 
 ```powershell
-& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn   # 期望 21/21, EXIT=0
+& $env:GODOT_BIN --headless --quit-after 400 res://scenes/debug/pii_probe.tscn   # 期望 27/27, EXIT=0
 ```
 
 三条防假绿设计（缺一条这条判据就没意义）：
@@ -295,3 +295,66 @@ M28-a 单位后缀违规从 **71 处 → 0 处**，`validate_data` 从 6/7 → *
 `GITHUB_TOKEN` 传入**，脚本逐层校验 blob/tree/commit SHA 与本地字节级一致。
 > ⚠ **安全**：本会话用过的 PAT 已在聊天中明文出现，用完请到
 > GitHub → Settings → Developer settings **撤销并重建**。
+
+---
+
+## 12. 变异测试（战斗组判据的有效性证明）
+
+包 F 的 `tools/mutation_test.py` 覆盖的是 stage 4（`tests/test_main.tscn`，包 F 域），
+战斗组 4 套探针**从未做过变异验证**——"全绿"可能只是判据抓不到东西。
+本组补上：`tools/mutation_combat.py`（**不改包 F 的任何文件**），产出
+`tools/mutation_combat_report.json`。
+
+### 12.1 结果：**12/12 全部捕获且无误伤**
+
+| 变异体 | 探针 | 被抓的判据 | 性质 |
+|---|---|---|---|
+| C1 无敌帧 9→8 | combat | IFRAMES_TICKS==9 / 帧秒一致 | **帧数锚定**（R5 核心） |
+| C2 夜7 强度 2.32→2.0 | combat | night7 strength | 强度曲线 |
+| C3 夜1 数量 3→4 | combat | night1 slot total（+4 条连锁） | 波次规模 |
+| C4 batch 压成 1 | combat | night1 batch_count / batches_progress | **防「召唤池抽干提前过关」** |
+| C5 物化时刻 18→19 | combat | materialized_gh | **M19 锚点** |
+| C6 impact 白名单放开 | event | m10 非法 kind 被拒 | **M10 封闭集** |
+| C7 幂等查重失效 | event | p9 不重复发放 / 不重复写日志 | **P9 幂等** |
+| C8 日志不 append | event | p8/p9/save/p10 共 7 条 | **C17 append-only** |
+| C9 all() 只看首叶子 | event | all() 首真次假 | 结构化谓词 |
+| C10 绕过 NullSteam 降级 | steam | backend 解析 / backend_kind | **S 构建硬要求** |
+| C11 扫描器去掉路径检测 | pii | 单 token 对照（3 条） | **S10 反向对照** |
+| C12 存档不解压就扫 | pii | 3 条存档「解压后是合法 JSON」 | **防空转假绿** |
+
+### 12.2 变异测试**抓出了 4 个真判据缺陷**（不测就永远发现不了）
+
+| # | 缺陷 | 为什么原判据抓不住 | 修法 |
+|---|---|---|---|
+| 1 | **无敌帧判据全是相对行为**（"闪避期间伤害被格挡"） | 帧数 9→8 后行为仍自洽 → 一条都不红 | 加**帧数锚定**：`IFRAMES_TICKS==9`、`/60==0.15`、第 8 帧仍无敌 / 第 9 帧失效 |
+| 2 | **P9 幂等只测私有 `_fire()`** | `_fire()` 内部**自己也有查重**，破外层 `fire()` 查重它照样拦 | 加**公开入口 `fire()`** 幂等判据 |
+| 3 | **all() 用例首叶子就是假的** | 变异"只看首叶子"后仍返回 false | 补**首叶子真、次叶子假**的用例 |
+| 4 | **PII 对照样本含多个 token** | 去掉 `Users\` 后 `C:\` 仍命中 | 每 token 一条判据，样本**只含那一个 token** |
+
+另加**防空转护栏**：C12 变异（不解压就扫）曾让判据恒真——
+二进制乱码非空 → 旧写法跳过判据 → "0 命中"假绿。
+现断言「存档解压后必须是**可解析的 JSON**」，否则判红。
+
+### 12.3 工具本身也踩了两个坑（已修，教训通用）
+
+1. **还原必须按字节偏移量回填**，不能靠"再找一次变异文本"。
+   实测翻车：变异把夜7 的 `2.32` 改成 `2.0`，还原时 `"strength_mult": 2.0` 是
+   夜6 `"…": 2.02` 的**子串** → `find()` 命中夜6 → **把夜6 改成了 2.32**，
+   数据被改坏才被 md5 校验发现。→ 已改为 apply 记偏移量、revert 按偏移回填。
+2. **变异体清单里的重复 dict 键**（`chain_ok` 写两遍）→ Python 取**后者**，
+   导致"连锁族声明"被静默清空 → 好判据被误判"误伤"。
+   → 已加 AST 检查脚本兜底。
+
+### 12.4 复跑方式
+
+```powershell
+$env:GODOT_BIN = "<Godot 4.3 控制台版路径>"
+Set-Location "<仓库根>"
+python -u tools\mutation_combat.py
+# 期望末行：变异确认独立覆盖: 12 / 12
+# 只跑单个变异体：python -u tools\mutation_combat.py C1
+```
+
+- **必须加 `-u`**（stdout 块缓冲，不加会像卡死直到超时被杀）。
+- 工具**会自动还原**被改文件（按字节偏移回填 + md5 校验），
+  还原失败时**自动 `git checkout` 兜底**，绝不留下带变异的文件。

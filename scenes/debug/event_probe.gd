@@ -88,6 +88,29 @@ func _test_p9_idempotent() -> void:
 		if String((e_variant as Dictionary).get("key", "")) == "ev_neighbor_water:5:0":
 			count += 1
 	_t("p9: duplicate key does not duplicate log entry", count == 1)
+	_test_p9_public_fire_path()
+
+## ★ P9 幂等必须走**公开入口** fire() 测（变异测试 C7 逼出来的）
+##
+## 变异实测：把 fire() 里的幂等查重去掉，上述 P9 判据**一条都没红**——
+## 因为它们直接调私有 _fire()，而 _fire() 内部**自己也有一层查重**，
+## 于是无论 fire() 的查重坏没坏，_fire() 路径都照样拦住 → 判据形同虚设。
+## → 幂等是**对外契约**，必须从公开入口 fire() 打进去才测得到。
+func _test_p9_public_fire_path() -> void:
+	var sys_p := _EventScript.new()
+	add_child(sys_p)
+	# 先用公开入口 fire() 触发一次
+	sys_p.fire(&"ev_neighbor_water", {"day": 11, "slot_index": 0})
+	var n_after_first := sys_p.event_log.size()
+	_t("p9: public fire() logs exactly one entry", n_after_first == 1)
+	# 再从公开入口重复触发同键 → 幂等：既不重复落日志，也不重复发效果
+	State.apply(_Store.ChangeSet.new("effect_sink", "p9pub").setv("player.thirst", 90.0))
+	sys_p.fire(&"ev_neighbor_water", {"day": 11, "slot_index": 0})
+	_t("p9: public fire() duplicate key does not grow log",
+		sys_p.event_log.size() == n_after_first)
+	_t("p9: public fire() duplicate key does not re-apply effect",
+		is_equal_approx(float(State.read("player.thirst")), 90.0))
+	sys_p.queue_free()
 
 ## P17：日志已有键 → 不重新掷骰，原样回放（同一天两次 roll_daily 结果集合一致）
 func _test_p17_replay_no_roll() -> void:
@@ -119,6 +142,16 @@ func _test_condition_predicate() -> void:
 		{"path": "ui.hints.tech_L2_1_trap", "op": "eq", "value": false},
 	]}
 	_t("cond: all() false when one leaf false", not _ev._eval_condition(node2, 3))
+	# ★ 变异测试 C9 逼出来的：原用例的**首叶子就是假的**（hunger<5），
+	#   变异把 all() 改成"只看第 1 个叶子"后仍返回 false → 判据抓不到变异。
+	# → 必须再补一条**首叶子为真、次叶子为假**的用例：只看首叶子会返回 true，
+	#   而正确实现必须返回 false。顺序即用例设计的关键（与「Dictionary 保序」同源）。
+	var node2b := {"all": [
+		{"path": "player.hunger", "op": "lt", "value": 50.0},      # 真
+		{"path": "ui.hints.tech_L2_1_trap", "op": "eq", "value": true},  # 假
+	]}
+	_t("cond: all() false when FIRST leaf true but second false",
+		not _ev._eval_condition(node2b, 3))
 	var node3 := {"not": {"path": "player.hunger", "op": "gt", "value": 50.0}}
 	_t("cond: not() negates leaf", _ev._eval_condition(node3, 3))
 	var node4 := {"any": [
