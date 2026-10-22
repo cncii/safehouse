@@ -40,6 +40,9 @@ const SCENE_PATHS := {
 	"settings": "res://scenes/ui/settings.tscn",
 	# 键名与 locations.json 节点 id 严格一致（TimeSystem/存档按 player.scene_id 判定）
 	"safehouse": "res://scenes/game/safehouse.tscn",
+	# TASK-G M2（表现组）：总览图 + 超市灰盒
+	"overview_map": "res://scenes/ui/overview_map.tscn",
+	"supermarket": "res://scenes/game/supermarket.tscn",
 }
 
 var _current_id: StringName = &"boot"

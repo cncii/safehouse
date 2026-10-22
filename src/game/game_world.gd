@@ -61,6 +61,7 @@ func start_new_game(seed_value: int = GRAYBOX_SEED) -> void:
 	State.reset_for_new_game(seed_value, "normal", 1)
 	# 新局从 05:00（prep_start_gh）起步——时钟语义见 time_system（gh=当日钟点）
 	GameLoop.reset(_prep_mark_frames())
+	_install_clock_gate()
 	_instantiate_systems()
 	_init_map_progress()
 	_mount_ui()
@@ -75,6 +76,7 @@ func continue_game() -> bool:
 		return true   # 已在对局中（例如读档后回到主菜单再继续）
 	var rnd: Dictionary = run.get("random", {})
 	Rng.setup(int(rnd.get("global_seed", GRAYBOX_SEED)))
+	_install_clock_gate()
 	_instantiate_systems()
 	var t: Dictionary = run.get("time", {})
 	TimeSystem.time_restore(t)
@@ -152,6 +154,75 @@ func _on_player_died(cause: String) -> void:
 	# M4 接线：死亡 → 当日清晨重开（同种子同日内容一致，M9 实机复跑）。
 	# M1 先记日志：灰盒第一天饿死也是有效观测（硬约束 3：自动配给不许抢先存在）。
 	Logger.log("game_world", "player_died", "", 0, cause)
+
+
+## ── 拨钟（唯一时钟写入点）────────────────────────────────────────
+## 逻辑组把「跳夜/过渡夜/开局拨钟」做成了注入式回调 `TimeSystem.clock_advance_gate`
+## （包 B 不直接写 core 状态，C27 + 协作纪律），但 core 的 `GameLoop.advance_to()`
+## 还没落地（缺数 C-03 有登记）。在世界侧补一个同签名的实现顶住，等 core 给了
+## 正式 API，把这里换成 `Callable(loop, "advance_to")` 即可，**调用方一行不用改**。
+##
+## 为什么必须补发 gh_crossed：Vitals 的饥饿/口渴结算点挂在 `GameLoop.gh_crossed` 上。
+## 直接跳 `elapsed_ticks` 而不发信号 → "路上那 1 GH 不消耗饥饿"，
+## 与「1 GH = 72 s」的设计口径冲突（旅行不是时间走私通道）。
+func _install_clock_gate() -> void:
+	# 静态变量跨对局存活：上一局的 GameWorld 被 free 后，gate 里还攥着死对象。
+	# 只判 is_valid() 不够（Callable 本身仍然 valid），要判绑定对象还在不在。
+	var cur := TimeSystem.clock_advance_gate
+	if cur.is_valid():
+		var obj: Object = cur.get_object()
+		if obj != null and is_instance_valid(obj):
+			return
+	TimeSystem.clock_advance_gate = Callable(self, "advance_clock_to")
+
+
+## 对局被销毁时收回自己注册的网关，别把死对象留给下一局
+func _exit_tree() -> void:
+	var cur := TimeSystem.clock_advance_gate
+	if cur.is_valid() and cur.get_object() == self:
+		TimeSystem.clock_advance_gate = Callable()
+
+
+## 把钟拨到 target_gh（单位 GH）。只允许向前拨——回拨会把 day/阶段算乱。
+func advance_clock_to(target_gh: float) -> bool:
+	var loop := get_node_or_null("/root/GameLoop") as GameLoop
+	if loop == null:
+		return false
+	var new_ticks := int(round(target_gh * float(GameLoop.FRAMES_PER_GH)))
+	if new_ticks < loop.elapsed_ticks:
+		return false
+	var from_gh := loop.gh_int()
+	loop.elapsed_ticks = new_ticks
+	var to_gh := loop.gh_int()
+	for g in range(from_gh + 1, to_gh + 1):
+		loop.gh_crossed.emit(g)
+	_last_gh_int = to_gh
+	return true
+
+
+## ── 出门：从总览图前往一个地点 ────────────────────────────────────
+## 扣 GH（走 clock gate）→ SceneRouter 切场景。
+## 目标节点必须有对应场景（SceneRouter 注册表里查）。
+func travel_to(node_id: StringName) -> void:
+	var ms := map_sys
+	if ms == null:
+		push_error("GameWorld: travel_to but map_sys null")
+		return
+	var cost := ms.travel_cost(
+		StringName(str(State.read("map.current_node"))), node_id)
+	if cost < 0.0:
+		Logger.log("game_world", "travel_no_route", str(node_id), 0, "no edge")
+		return
+	# 扣 GH：走统一时钟网关（未注入时明确失败，不静默算错）
+	if not TimeSystem.clock_advance_gate.is_valid() \
+			or not bool(TimeSystem.clock_advance_gate.call(TimeSystem.gh_now() + cost)):
+		Logger.log("game_world", "travel_no_clock_gate", str(node_id), cost, "C-03")
+		return
+	Logger.log("game_world", "travel_cost", str(node_id), cost, "GH")
+	# 切场景（SceneRouter 里注册的 scene_id 与 node_id 同名）
+	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
+	if router:
+		router.goto(node_id)
 
 
 func toggle_inventory() -> void:

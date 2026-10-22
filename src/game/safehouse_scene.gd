@@ -77,9 +77,11 @@ func _build_interactables() -> void:
 	var bed_root := _marker(Rect2(56, 56, 52, 30), Color(0.3, 0.4, 0.55))
 	bed_root.add_child(InteractionZone.new(&"bed", ""))
 
-	# ── 大门（M2 接总览图出门；现在静默占位）──
+	# ── 大门（M2 接总览图出门）──
 	var door_root := _marker(Rect2(300, 318, 44, 14), Color(0.5, 0.25, 0.2))
-	door_root.add_child(InteractionZone.new(&"door_main", ""))
+	var door_zone := InteractionZone.new(&"door_main", "PROMPT_EXIT")
+	door_zone.triggered.connect(_on_door_triggered)
+	door_root.add_child(door_zone)
 
 
 func _marker(rect: Rect2, color: Color) -> Node2D:
@@ -123,3 +125,10 @@ func _starter_supplies() -> Array:
 		return []
 	var arr: Variant = (parsed as Dictionary).get("starter_supplies", [])
 	return arr if typeof(arr) == TYPE_ARRAY else []
+
+
+## 大门：进总览图（不扣 GH——总览图是"看地图"不是"旅行")
+func _on_door_triggered(_zone_id: StringName) -> void:
+	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
+	if router:
+		router.goto(&"overview_map")

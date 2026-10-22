@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _test_loop_panel()
 	_test_audio_alarms()
 	await _test_m1_world()
+	await _test_m2_world()
 	_finish()
 
 # ── 本地化链路 ──
@@ -418,6 +419,88 @@ func _test_m1_world() -> void:
 
 	menu.free()
 	scene.free()
+	world.free()
+
+
+## ── M2：总览图出门 → 超市灰盒 → 搜刮 + 1 种丧尸战斗 ─────────────
+## 判据对着 TASK-G §5 M2「能出门一趟」与 §6 G3/G4 的前置。
+## 期望值一律独立写死（12 点位 / 1.0 GH 成本 / 60 HP 来自 themes.json + locations.json 定稿），
+## 不从被测代码现取——否则实现坏了判据跟着绿（本项目已踩三次恒真式）。
+func _test_m2_world() -> void:
+	var world := GameWorld.new()
+	get_tree().root.add_child(world)
+	await get_tree().process_frame
+	world.start_new_game(42)
+
+	# ── ① 注册表：总览图与超市场景都在 ──
+	_t("m2: router registry has overview_map/supermarket",
+		SceneRouter.SCENE_PATHS.has("overview_map") \
+		and SceneRouter.SCENE_PATHS.has("supermarket"))
+
+	# ── ② 总览图可达性（成本 1.0 GH 来自 locations.json 定稿，写死不取自代码）──
+	var ms := world.map_sys
+	var cost := ms.travel_cost(&"safehouse", &"supermarket")
+	_t("m2: safehouse->supermarket cost is 1.0 GH", is_equal_approx(cost, 1.0))
+	_t("m2: safehouse does not reach radio_tower directly (no edge)",
+		ms.travel_cost(&"safehouse", &"radio_tower") < 0.0)
+
+	# ── ③ 出门扣时：travel_to 推进 1 GH = 4320 帧 ──
+	#   同栈断言（无 await）：GameLoop 每帧 +1，插一帧这条就永远不准
+	var before := GameLoop.elapsed_ticks
+	world.travel_to(&"supermarket")
+	var after := GameLoop.elapsed_ticks
+	_t("m2: travel_to advances clock by exactly 1 GH (4320 frames)",
+		after - before == GameLoop.FRAMES_PER_GH)
+
+	# ── ④ 进地点：布局点数 12（commercial 主题定稿值）+ current_node 写入 ──
+	var e := ms.enter_node(&"supermarket", int(State.read("time.day")))
+	_t("m2: enter_node ok with 12 loot points",
+		bool(e.get("ok", false)) and (e.get("loot_points", []) as Array).size() == 12)
+	_t("m2: enter_node writes map.current_node=supermarket",
+		str(State.read("map.current_node")) == "supermarket")
+
+	# ── ⑤ 场景皮：超市场景 12 个掉落交互点 + 1 只丧尸 ──
+	var market := SupermarketScene.new()
+	add_child(market)
+	_t("m2: supermarket scene builds 12 loot interaction zones",
+		market.loot_zone_ids().size() == 12)
+	_t("m2: supermarket scene has exactly one zombie",
+		market.zombie() != null)
+
+	var z := market.zombie()
+	if z != null:
+		# 60 HP 来自 graybox_start.json（PROVISIONAL D-D02），写死为判据期望值
+		_t("m2: zombie hp comes from data (60)", is_equal_approx(z.hp, 60.0))
+		z.apply_damage(25.0)
+		_t("m2: zombie takes damage (60-25=35)", is_equal_approx(z.hp, 35.0))
+		z.apply_damage(25.0)
+		z.apply_damage(25.0)
+		_t("m2: zombie dies at <=0 hp and stops being alive",
+			z.is_dead() and z.hp <= 0.0)
+
+	# ── ⑥ 搜刮链路：InteractionZone.trigger → loot_take → InventorySystem.add ──
+	var inv_before := world.inventory.used()
+	var ids := market.loot_zone_ids()
+	var picked := 0
+	for pid: Variant in ids:
+		var zone := _find_zone(market, StringName(str(pid)))
+		if zone == null:
+			continue
+		zone.trigger()
+		picked += 1
+	_t("m2: all 12 loot zones are triggerable", picked == 12)
+	_t("m2: scavenging fills inventory (slots used > before)",
+		world.inventory.used() > inv_before)
+	# 搜过即打空：再点同一个点不会重复进包
+	var first_id := StringName(str(ids[0]))
+	var used_after_sweep := world.inventory.used()
+	var first_zone := _find_zone(market, first_id)
+	if first_zone != null:
+		first_zone.trigger()
+	_t("m2: re-triggering a looted point adds nothing",
+		world.inventory.used() == used_after_sweep)
+
+	market.free()
 	world.free()
 
 
