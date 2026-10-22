@@ -149,6 +149,20 @@ func progress_ratio() -> float:
 	return clampf(float(progress_milli) / 1000.0 / duration_gh, 0.0, 1.0)
 
 
+## 剩余 GH —— TASK-G §4 硬约束 4：「每个耗时动作给**可预期时长**（建造/研发前
+## 显示剩余 GH）」。UI 直接读这个，不要自己算（自己算 = 第二套进度语义）。
+func remaining_gh() -> float:
+	if duration_gh <= 0.0:
+		return 0.0
+	var done := float(progress_milli) / 1000.0
+	return clampf(duration_gh - done, 0.0, duration_gh)
+
+
+## 已耗时 GH（与 remaining_gh 互补；两者相加恒等于 duration_gh）
+func elapsed_gh() -> float:
+	return clampf(float(progress_milli) / 1000.0, 0.0, duration_gh)
+
+
 ## 取走已结算产出（交给调用方落账）。ALL_OR_NOTHING 中断后这里返回 0。
 func take_output_milli() -> int:
 	var v := settled_output_milli
@@ -217,6 +231,47 @@ func verify_continuous_actions() -> Dictionary:
 	bad.progress_persisted = false
 	out["M20_schema_blocks_missing_persist"] = not bool(bad.validate()["ok"])
 	out["M20_schema_pass"] = out["M20_schema_blocks_missing_persist"]
+
+	# ── TASK-G §4 硬约束4：耗时动作必须能给"剩余 GH" ──
+	# 期望值独立写死：时长 2.0 GH，走 0.5 GH → 剩 1.5，已过 0.5，两者相加 == 2.0
+	var r := ContinuousAction.new(&"probe_r", 2.0, 0.5)
+	r.progress_milli = 500          # 0.5 GH
+	out["G_remaining_gh"] = r.remaining_gh()
+	out["G_elapsed_gh"] = r.elapsed_gh()
+	out["G_remaining_exact"] = is_equal_approx(r.remaining_gh(), 1.5)
+	out["G_elapsed_exact"] = is_equal_approx(r.elapsed_gh(), 0.5)
+	# 互补不变量：remaining + elapsed == duration（两条独立断言，不合并——
+	# 本项目已踩过"守恒与容量合成一条"的坑）
+	out["G_complement_ok"] = is_equal_approx(
+		r.remaining_gh() + r.elapsed_gh(), 2.0)
+	# 零时长不除零、返回 0
+	var z := ContinuousAction.new(&"probe_z", 0.0, 0.0)
+	out["G_zero_duration_ok"] = is_equal_approx(z.remaining_gh(), 0.0) \
+		and is_equal_approx(z.progress_ratio(), 0.0)
+	out["G_remaining_pass"] = bool(out["G_remaining_exact"]) \
+		and bool(out["G_elapsed_exact"]) and bool(out["G_complement_ok"]) \
+		and bool(out["G_zero_duration_ok"])
+
+	# ── TASK-G M3：研发动作工厂（时长从 tech_tree.json 读，不写死）──
+	var mk := make_research(&"unlock_cook")
+	out["G_research_ok"] = bool(mk.get("ok", false))
+	var ra: ContinuousAction = mk.get("action")
+	if ra != null:
+		out["G_research_duration_gh"] = ra.duration_gh
+		# unlock_cook 的 research_gh 定稿 = 3（独立基准，不从 data 现取）
+		out["G_research_duration_ok"] = is_equal_approx(ra.duration_gh, 3.0)
+		out["G_research_remaining_ok"] = is_equal_approx(ra.remaining_gh(), 3.0)
+	else:
+		out["G_research_duration_gh"] = -1.0
+		out["G_research_duration_ok"] = false
+		out["G_research_remaining_ok"] = false
+	# 未知节点必须被拒（不造 0 时长动作——0 时长等于白拿科技）
+	var bad_mk := make_research(&"no_such_tech")
+	out["G_research_unknown_rejected"] = not bool(bad_mk.get("ok", true)) \
+		and str(bad_mk.get("reason", "")) == "unknown_node"
+	out["G_research_factory_pass"] = bool(out["G_research_ok"]) \
+		and bool(out["G_research_duration_ok"]) and bool(out["G_research_remaining_ok"]) \
+		and bool(out["G_research_unknown_rejected"])
 	return out
 
 
@@ -226,3 +281,39 @@ func _make_dismantle(mode: SettleMode) -> ContinuousAction:
 	a.progress_persisted = (mode == SettleMode.PER_SEGMENT)
 	a.output_per_segment_milli = 750
 	return a
+
+
+# ════════════════════════════════════════════════════════════════
+#  动作工厂（TASK-G M3：研发/建造动作实例化）
+# ════════════════════════════════════════════════════════════════
+#
+## ⚠ 时长**一律从 data 读**，不在工厂里写死（数值唯一来源纪律）。
+## 建造/设施的时长目前 data 里**没有**（见 data/UNDEFINED.md D-B12），
+## 所以本组只提供研发工厂；建造工厂等数到位再补，**不编造时长**。
+
+## 研发动作（时长 = tech_tree.json 该节点的 research_gh）
+## 返回 {ok, reason, action}
+static func make_research(node_key: StringName) -> Dictionary:
+	var tree := _read_json("res://data/tech/tech_tree.json")
+	var nodes: Dictionary = tree.get("nodes", {})
+	var node: Dictionary = nodes.get(str(node_key), {})
+	if node.is_empty():
+		return {"ok": false, "reason": "unknown_node", "action": null}
+	var gh := float(node.get("research_gh", 0.0))
+	if gh <= 0.0:
+		# 0 时长 = 数据缺失，不是"瞬间完成"——两者混淆会让玩家白拿科技
+		return {"ok": false, "reason": "missing_research_gh", "action": null}
+	# 研发不分段（设计基线没给分段），整段结算
+	var a := ContinuousAction.new(StringName("research:%s" % str(node_key)), gh, gh)
+	a.settle_mode = SettleMode.ALL_OR_NOTHING
+	a.progress_persisted = false
+	return {"ok": true, "reason": "ok", "action": a}
+
+
+## 读 JSON（本地小工具；失败返回空字典，不抛）
+static func _read_json(path: String) -> Dictionary:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}

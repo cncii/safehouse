@@ -18,7 +18,8 @@ static func run(host) -> void:
 	host._t("ACTION-0 verify_continuous_actions() returned non-empty result", not out.is_empty())
 	if out.is_empty():
 		host._block(["ACTION-M20-full", "ACTION-M20-resume", "ACTION-M20-anon",
-			"ACTION-M20-refund", "ACTION-M20-anchor", "ACTION-M20-schema"],
+			"ACTION-M20-refund", "ACTION-M20-anchor", "ACTION-M20-schema",
+			"ACTION-G-remaining", "ACTION-G-research"],
 			"blocked: verify_continuous_actions() empty")
 		ca.free()
 		return
@@ -46,5 +47,17 @@ static func run(host) -> void:
 	# ── 硬规则：分段动作缺 progress_persisted → 加载期即报错 ──
 	host._t("ACTION-M20-6 schema blocks missing progress_persisted",
 		bool(out.get("M20_schema_pass", false)))
+
+	# ════════════════════════════════════════════════════════════
+	#  ↓ TASK-G 追加段（逻辑组 · 2026-10-22，包 F 归档时可整体移走）
+	# ════════════════════════════════════════════════════════════
+	# ── TASK-G §4 硬约束4：耗时动作必须能给"剩余 GH" ──
+	host._t("ACTION-G-remaining remaining=%s elapsed=%s sum==duration (zero-safe)"
+		% [str(out.get("G_remaining_gh", "?")), str(out.get("G_elapsed_gh", "?"))],
+		bool(out.get("G_remaining_pass", false)))
+	# ── TASK-G M3：研发动作工厂（时长从 tech_tree.json 读；未知节点必拒）──
+	host._t("ACTION-G-research research factory gh=%s (frozen anchor 3), unknown rejected"
+		% str(out.get("G_research_duration_gh", "?")),
+		bool(out.get("G_research_factory_pass", false)))
 
 	ca.free()
