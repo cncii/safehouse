@@ -55,6 +55,7 @@ const ActionTests = preload("res://tests/test_action.gd")
 const InventoryTests = preload("res://tests/test_inventory.gd")
 const TechRuntimeTests = preload("res://tests/test_tech_runtime.gd")
 const MapLootTests = preload("res://tests/test_map_loot.gd")
+const TimePersistTests = preload("res://tests/test_time_persist.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
 # 修订 #1：vitals 段 8 条（M2 死钟/M2b/M3/M3b/M4×4）随场景方式修通，75 → 83。
@@ -202,6 +203,8 @@ func _ready() -> void:
 	#   判据本体：src/systems/map_system.gd 的 verify_loot_baseline()
 	#   接线文件：tests/test_map_loot.gd（已就绪，摘掉下面这行即可挂）
 	# MapLootTests.run(self)
+	# ── 时间存档一致性（C-01 的直接判据，M7/M8/P7 的时间侧）──
+	TimePersistTests.run(self)
 
 	_finish()
 

@@ -42,11 +42,19 @@ const _BAL_PATH := "res://data/balance/time.json"
 ## 被拉进来的脚本若引用 autoload 标识符会编译失败（此时 autoload 尚未注册），
 ## 连带本文件的 static 判据全部不可用。preload 取常量是等价的，且任何加载时机都成立。
 const _GAME_LOOP = preload("res://src/core/game_loop.gd")
+## state_store 没有 class_name（autoload 名是 State），只能 preload 取内嵌 ChangeSet
+## （与 vitals_system.gd / combat_system.gd 同款）。
+const _Store = preload("res://src/core/state_store.gd")
 
 
 ## 运行期才取 GameLoop 实例（同一原因：标识符在早期编译期不可解析）
-func _loop() -> Node:
-	return get_node_or_null("/root/GameLoop")
+static func _loop() -> Node:
+	# static 函数不能调 get_node_or_null（实例方法）。走 main loop 的 root 拿 autoload
+	# （与表现组 keybind_settings.gd 同款写法）。
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("GameLoop")
 
 # ── 判据基准值（**故意与运行值分开**）──────────────────────────
 # 这四个是「判据眼里的正确答案」，不从运行常量派生。
@@ -62,43 +70,182 @@ enum Phase { PREP, OUTING, EVENING, TRANSITION_NIGHT, NIGHT_WAVE }
 enum Stage { A_LOOT, B_SIEGE }
 enum TimeMode { REALTIME, WAVE_DRIVEN, SCRIPTED }
 
-var stage: Stage = Stage.A_LOOT
-var phase: Phase = Phase.PREP
-var mode: TimeMode = TimeMode.REALTIME
-var day := 1
-var night_index := 0            # 阶段B 夜次 1..7；阶段A 恒 0
-var k_overtime := 0             # 阶段A 熬夜夜数（P1① 结构判据的 k）
+static var stage: Stage = Stage.A_LOOT
+static var phase: Phase = Phase.PREP
+static var mode: TimeMode = TimeMode.REALTIME
+static var day := 1
+static var night_index := 0            # 阶段B 夜次 1..7；阶段A 恒 0
+static var k_overtime := 0             # 阶段A 熬夜夜数（P1① 结构判据的 k）
 
 # ── 运行值（_load_balance 载入）──
-var _prep_start_gh := 5.0
-var _outing_start_gh := 8.0
-var _outing_end_gh := 18.0
-var _curfew_gh := 20.0
-var _stage_b_dawn_gh := 6.0
-var _stage_b_day_gh := 12.0
+static var _prep_start_gh := 5.0
+static var _outing_start_gh := 8.0
+static var _outing_end_gh := 18.0
+static var _curfew_gh := 20.0
+static var _stage_b_dawn_gh := 6.0
+static var _stage_b_day_gh := 12.0
 var _night_overtime_gh := 9.0
 var _transition_night_sec := 120.0
 var _transition_night_playable := false
 
 # ── 波次时钟（整数帧；gh 一律由帧派生）──
-var _wave_ticks := 0            # 当前波次时钟帧数
-var _wave_settled_ticks := 0    # 已结算帧数（P12b 的分子）
-var _wave_kills_ratio := 0.0
-var _wave_elapsed_sec := 0.0
-var _wave_finished := false
+static var _wave_ticks := 0            # 当前波次时钟帧数
+static var _wave_settled_ticks := 0    # 已结算帧数（P12b 的分子）
+static var _wave_kills_ratio := 0.0
+static var _wave_elapsed_sec := 0.0
+static var _wave_finished := false
 
-var _rolled_today := false      # 跨日结算幂等锁（一天只跑一次 DAY_ROLLOVER_ORDER）
+static var _rolled_today := false   # 跨日结算幂等锁（一天只跑一次 DAY_ROLLOVER_ORDER）
+static var _persist_registered := false   # 存档注册只做一次（重复 key 会 assert 崩）
 
 
 func _ready() -> void:
 	_load_balance()
+	# 存档注册：time 段（D-009 挂接点）。
+	#
+	# ★ 为什么注册 "time" 而不是新开一段：
+	#   core 的 `_build_payload()` 先建字典字面量（含硬编码的 "time" 段），
+	#   **再**遍历 _persistences 覆盖同名 key。所以注册 "time" 会**覆盖**那份
+	#   硬编码常量，payload 里最终只有一个 "time" 段——**不是第二个写入方**。
+	#   （core 禁改；这条是源头修 core 之前的等效替代，且可回退。）
+	#
+	# ★ 回调必须 static：不绑实例 → 存档永远指向脚本级唯一的那份时间状态。
+	#   绑实例的话，第二个 TimeSystem 实例（无头测试会 new 多个）会让存档
+	#   绑在"第一个被 new 的实例"上，读档丢状态且不报错。
+	if not _persist_registered:
+		Save.register_persistence(&"time", Callable(TimeSystem, "to_save_time"),
+			Callable(TimeSystem, "from_save_time"))
+		_persist_registered = true
+	_sync_time_state()
+
+
+## 存档段：时间状态（save.schema.json 的 time 段字段级定义）
+## 含 k_overtime——core 的硬编码 payload 里这个字段**整段缺失**（C-02）。
+static func to_save_time() -> Dictionary:
+	return {
+		"day": day,
+		"stage": _stage_name(),
+		"phase": phase_name(),
+		"night_index": night_index,
+		"k_overtime": k_overtime,
+		"gh_elapsed_today": gh_now(),
+		"mode": mode_name(),
+	}
+
+
+## 读档恢复（save.schema.json 的 time 段）
+static func from_save_time(snap: Dictionary) -> void:
+	time_restore(snap)
+
+
+# ════════════════════════════════════════════════════════════════
+#  时间状态 → State 同步（存档单一来源）
+# ════════════════════════════════════════════════════════════════
+#
+## 为什么需要这一段（core 侧 C-01 的真正根因）：
+##   `state_contract.json` 里 time.day / time.stage / time.night_index /
+##   time.gh_elapsed_today 四条路径**早就注册了**（writers = time_system），
+##   但**从来没有人往里写值**——时间状态只存在本系统的实例成员里。
+##   于是 core 的 `save_system._build_payload()` 只能硬编码一份
+##   `{"day": 1, "stage": "A", ...}`，存档里的时间永远是最新的第 1 天。
+##
+## 修法为什么在 systems 侧而不是 core 侧：
+##   core 禁改（协作纪律：core 与 schema 由源头统一修）；而**写值的人只能是
+##   time_system**（contract 的 writers 白名单就是这么定的）。
+##   本系统把状态同步进 State 之后，core 侧只要改成读 State 即可——
+##   但那一步仍需 core owner 动一行（见 data/UNDEFINED.md 的 C-01/C-02）。
+##
+## 单一出口：所有时间状态变更后都调一次 `_sync_time_state()`，
+## 不散落在各处写 State——散落写会漏（漏一处 = 存档那条路径又陈旧了）。
+
+## 把当前时间状态写进 State（contract 已注册的 time.* 四条路径）
+static func _sync_time_state() -> void:
+	var cs := _Store.ChangeSet.new(&"time_system", "sync time state")
+	cs.setv("time.day", day)
+	cs.setv("time.stage", _stage_name())
+	cs.setv("time.night_index", night_index)
+	cs.setv("time.gh_elapsed_today", gh_elapsed_today())
+	State.apply(cs)
+
+
+## 当天已过的 GH 数（0..24）——**不是累计 GH**。
+##
+## ⚠ 契约里 time.gh_elapsed_today 的 max = 24，语义是"今天过了几小时"；
+##   直接写 gh_now()（累计值）会被 StateStore 判 "above max 24" 拒写
+##   （实测触发 assert）。跨日点：阶段A 05:00（prep_start_gh）/ 阶段B 06:00（stage_b_dawn_gh）。
+static func gh_elapsed_today() -> float:
+	var mark := _prep_start_gh if stage == Stage.A_LOOT else _stage_b_dawn_gh
+	var g := gh_now()
+	# 跨日点之前算"昨天剩下的"（不该发生，但要保证 0..24 不越界）
+	if g < mark:
+		return maxf(0.0, g + (24.0 - mark))
+	return fmod(g - mark, 24.0)
+
+
+## 阶段/时段的可读名（存档与显示用；枚举名不能直接存——数值会随枚举顺序漂）
+static func _stage_name() -> String:
+	return "B" if stage == Stage.B_SIEGE else "A"
+
+
+static func phase_name() -> String:
+	match phase:
+		Phase.PREP:
+			return "PREP"
+		Phase.OUTING:
+			return "OUTING"
+		Phase.EVENING:
+			return "EVENING"
+		Phase.TRANSITION_NIGHT:
+			return "TRANSITION_NIGHT"
+		Phase.NIGHT_WAVE:
+			return "NIGHT_WAVE"
+	return "PREP"
+
+
+static func mode_name() -> String:
+	match mode:
+		TimeMode.REALTIME:
+			return "REALTIME"
+		TimeMode.WAVE_DRIVEN:
+			return "WAVE_DRIVEN"
+		TimeMode.SCRIPTED:
+			return "SCRIPTED"
+	return "REALTIME"
+
+
+## 读档恢复（save.schema.json 的 time 段）
+static func time_restore(snap: Dictionary) -> void:
+	day = maxi(int(snap.get("day", 1)), 1)
+	night_index = maxi(int(snap.get("night_index", 0)), 0)
+	k_overtime = maxi(int(snap.get("k_overtime", 0)), 0)
+	stage = Stage.B_SIEGE if str(snap.get("stage", "A")) == "B" else Stage.A_LOOT
+	match str(snap.get("phase", "PREP")):
+		"OUTING":
+			phase = Phase.OUTING
+		"EVENING":
+			phase = Phase.EVENING
+		"TRANSITION_NIGHT":
+			phase = Phase.TRANSITION_NIGHT
+		"NIGHT_WAVE":
+			phase = Phase.NIGHT_WAVE
+		_:
+			phase = Phase.PREP
+	match str(snap.get("mode", "REALTIME")):
+		"WAVE_DRIVEN":
+			mode = TimeMode.WAVE_DRIVEN
+		"SCRIPTED":
+			mode = TimeMode.SCRIPTED
+		_:
+			mode = TimeMode.REALTIME
+	_rolled_today = false
+	_sync_time_state()
 
 
 # ════════════════════════════════════════════════════════════════
 #  时段 / 门禁（实时现算，不缓存）
 # ════════════════════════════════════════════════════════════════
 
-func gh_now() -> float:
+static func gh_now() -> float:
 	if mode == TimeMode.WAVE_DRIVEN:
 		return WAVE_START_GH + float(_wave_ticks) / float(_GAME_LOOP.FRAMES_PER_GH)
 	var loop := _loop()
@@ -152,6 +299,7 @@ func tick_frames(frames: int) -> void:
 func _tick_realtime(_frames: int) -> void:
 	phase = phase_for_gh(gh_now())
 	_check_day_rollover()
+	_sync_time_state()
 
 
 ## 跨日：阶段A 05:00 / 阶段B 06:00（C16 DAY_ROLLOVER_ORDER 结算序）
@@ -173,6 +321,7 @@ func _rollover() -> void:
 	else:
 		night_index += 1
 		phase = Phase.EVENING
+	_sync_time_state()
 
 
 ## M5：阶段A→阶段B 切换。触发点 = D7 过渡夜结束（day 8 清晨）。
@@ -182,6 +331,7 @@ func _enter_stage_b() -> void:
 	day = 8
 	phase = Phase.EVENING
 	mode = TimeMode.REALTIME
+	_sync_time_state()
 
 
 ## M29：熬夜夜计数（k）。超过 MAX_OVERTIME_NIGHTS 一律拒绝——k 是 P1① 的结构分母，
@@ -190,6 +340,7 @@ func register_overtime_night() -> bool:
 	if k_overtime >= MAX_OVERTIME_NIGHTS:
 		return false
 	k_overtime += 1
+	_sync_time_state()
 	return true
 
 
@@ -205,6 +356,7 @@ func begin_wave() -> void:
 	_wave_kills_ratio = 0.0
 	_wave_elapsed_sec = 0.0
 	_wave_finished = false
+	_sync_time_state()
 
 
 ## WAVE_DRIVEN 专用；由 CombatSystem 每次击杀 / 每 30s 调用
@@ -277,6 +429,7 @@ func request_skip_to(target: Phase, has_bed: bool = false) -> bool:
 	phase = Phase.EVENING
 	_skip_to_prep()
 	mode = TimeMode.REALTIME
+	_sync_time_state()
 	return true
 
 
@@ -351,6 +504,90 @@ func verify_time_modes() -> Dictionary:
 	# ── P1 结构判据：全季帧数公式 ──
 	out["P1_frames_formula"] = (_GAME_LOOP.FRAMES_FULL_RUN
 		== 7 * _GAME_LOOP.FRAMES_PHASE_A_ACTIVE + 7 * _GAME_LOOP.FRAMES_PHASE_B_DAYTIME)
+	return out
+
+
+# ════════════════════════════════════════════════════════════════
+#  时间存档判据（M7 / M8 / P7 的时间侧）
+# ════════════════════════════════════════════════════════════════
+#
+## 这组判据直接对着 C-01 的根因：
+##   core 的 `_build_payload()` 曾经硬编码 `"time": {"day": 1, "stage": "A", ...}`，
+##   且缺 k_overtime → **存档里的时间永远是最新的第 1 天**。
+##   QA 判据表把 M7 / M8 / P7 三条全标成「⛔ C-01 阻塞」。
+##
+## 现在时间状态由本系统写进 State（contract 已注册的 time.* 四条路径），
+## 且 time 段经 SaveSystem 注册表落盘（含 k_overtime）。
+## 下面的判据验证的就是这两件事。
+##
+## ⚠ 期望值独立写死（不取被测代码自算）——本项目已踩三次恒真式。
+
+## 时间状态 → State 同步 + 存档段一致性
+static func verify_time_persistence() -> Dictionary:
+	var out := {}
+	var save_day := day
+	var save_night := night_index
+	var save_k := k_overtime
+	var save_stage := stage
+
+	# ── ① State 里的 time.* 必须与实例状态一致（同步出口真的接上了）──
+	day = 3
+	night_index = 2
+	k_overtime = 1
+	stage = Stage.B_SIEGE
+	_sync_time_state()
+	out["C01_state_day"] = int(State.read("time.day"))
+	out["C01_state_stage"] = str(State.read("time.stage"))
+	out["C01_state_night_index"] = int(State.read("time.night_index"))
+	out["C01_state_synced"] = int(out["C01_state_day"]) == 3 \
+		and str(out["C01_state_stage"]) == "B" \
+		and int(out["C01_state_night_index"]) == 2
+
+	# ── ② 存档段必须含 k_overtime（core 的硬编码 payload 整段缺这个字段）──
+	var seg := to_save_time()
+	out["C01_save_keys"] = seg.size()
+	out["C01_save_has_k_overtime"] = seg.has("k_overtime")
+	out["C01_save_k_overtime"] = int(seg.get("k_overtime", -1))
+	out["C01_k_ok"] = int(out["C01_save_k_overtime"]) == 1
+
+	# ── ③ 存档段七个字段齐全（save.schema.json 的 time 段字段级定义）──
+	var need := ["day", "stage", "phase", "night_index", "k_overtime",
+		"gh_elapsed_today", "mode"]
+	var missing := 0
+	for k: String in need:
+		if not seg.has(k):
+			missing += 1
+	out["C01_missing_fields"] = missing
+	out["C01_fields_ok"] = missing == 0
+
+	# ── ④ 读档往返：存档 → 恢复 → 状态一致 ──
+	var saved := to_save_time()
+	day = 1
+	night_index = 0
+	k_overtime = 0
+	stage = Stage.A_LOOT
+	time_restore(saved)
+	out["C01_restore_day"] = day
+	out["C01_restore_night"] = night_index
+	out["C01_restore_k"] = k_overtime
+	out["C01_restore_ok"] = day == 3 and night_index == 2 and k_overtime == 1 \
+		and stage == Stage.B_SIEGE
+
+	# ── ⑤ 存档段的 day 不能永远是 1（core 硬编码的 Symptom）──
+	#    这条专治"存档时间恒为第 1 天"——那正是 C-01 的原始症状。
+	out["C01_save_day"] = int(saved.get("day", -1))
+	out["C01_day_not_hardcoded"] = int(saved.get("day", -1)) != 1
+
+	# 复原
+	day = save_day
+	night_index = save_night
+	k_overtime = save_k
+	stage = save_stage
+	_sync_time_state()
+
+	out["C01_all_pass"] = bool(out["C01_state_synced"]) and bool(out["C01_k_ok"]) \
+		and bool(out["C01_fields_ok"]) and bool(out["C01_restore_ok"]) \
+		and bool(out["C01_day_not_hardcoded"])
 	return out
 
 

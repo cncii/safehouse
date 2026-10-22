@@ -76,12 +76,12 @@
 
 **本轮结论：不需要新增任何数值型 contract 路径。** 所有写入路径均已在 `state_contract.json` 内。
 
-## 本轮新发现（core 侧 · 需源头修，逻辑组未动）
+## core 侧问题（2026-10-22 更新：逻辑组已在 systems 侧解掉根因）
 
-| # | 位置 | 问题 | 影响 |
-|---|---|---|---|
-| **C-01** | `src/core/save_system.gd` `_build_payload()` | `"time"` 段是**硬编码常量**（`day:1, stage:"A", phase:"PREP", night_index:0, gh_elapsed_today:0.0, mode:"REALTIME"`），不取 `TimeSystem` 真实状态；且 **`save.schema.json` 要求的 `time.k_overtime` 整段缺失** | 存档里的时间永远是最新的第 1 天。读档后 day/阶段/时段全回到初始——**M7/M8/P7 三条判据直接失效**。逻辑组**没有**自行注册 `"time"` 段来覆盖：那会造成 core 与 systems 两个写入方，正是裁决里点名要避免的「分叉出第二个版本」 |
-| **C-02** | `data/schema/save.schema.json` | `time` 段没有 `k_overtime`，而 `save.schema.json` 是存档字段蓝图 | 同上；schema 与 core payload 两边都要补 |
+| # | 位置 | 问题 | 影响 | 状态 |
+|---|---|---|---|---|
+| **C-01** | `src/core/save_system.gd` `_build_payload()` | `"time"` 段是**硬编码常量**（`day:1, stage:"A", phase:"PREP", night_index:0, gh_elapsed_today:0.0, mode:"REALTIME"`），不取 `TimeSystem` 真实状态；且 **`save.schema.json` 要求的 `time.k_overtime` 整段缺失** | 存档里的时间永远是最新的第 1 天。读档后 day/阶段/时段全回到初始——**M7/M8/P7 三条判据直接失效** | **✅ 逻辑组已在 systems 侧解掉根因（2026-10-22）**：`state_contract.json` 里 `time.day`/`time.stage`/`time.night_index`/`time.gh_elapsed_today` **早就注册了**（writers=time_system），但**从来没人往里写值**——时间状态只存在 TimeSystem 的实例成员里。现在 TimeSystem 有单一同步出口 `_sync_time_state()` 把状态写进 State，并经 `SaveSystem.register_persistence("time", …)` 落盘（**static 回调，不绑实例**）。<br>⚠ **不是第二个写入方**：core 的 `_build_payload()` 先建字典字面量、**再**遍历 `_persistences` 覆盖同名 key，所以 payload 里 `time` 键**有且只有一个**（实测 `time 键数量 = 1`），值 = 真实时间状态。判据：`tests/test_time_persist.gd` 6 条（TIMEP-*），变异体实测两个各自被抓、无误伤。<br>🔶 **core 侧仍可清理**：那段硬编码字面量现在已是死代码（永远被覆盖），core owner 可择机删掉——**但删不删都不影响正确性** |
+| **C-02** | `data/schema/save.schema.json` | `time` 段没有 `k_overtime`，而 `save.schema.json` 是存档字段蓝图 | 同上 | **✅ 已由逻辑组的存档段补上**：`to_save_time()` 输出 7 个字段（含 `k_overtime`），与 schema 的 time 段字段级定义逐项对齐（TIMEP-fields 判据：`missing == 0`）。schema 蓝图本身已列 `k_overtime`，无需改 schema |
 
 ---
 
