@@ -410,6 +410,20 @@ P1–P4 补的就是这半句，且**不碰验收器**。
 | — | `build/art_proof/` | **入库** | 验收对比图 + 5 个可复跑的验证脚本（shader / 字体 / 状态条素材 / 接入参考实现）一并入库 |
 | — | **手感闸门** | **已过（2026-10-22 老板确认）** | MVP 批解锁。已出状态条基准图 2 件（`ui_bar_frame` / `ui_bar_fill`），按 `HudStyle.BAR_W=112` 出图（初版 128 宽会溢出 16px）。⚠ **行高会 14→16，S5 必须重跑**（见 §8.2） |
 
+### 8.1 当前生效的四道门禁
+
+| 门禁 | 命令 | 管什么 |
+|---|---|---|
+| 资产 | `python tools/check_assets.py` | A1 尺寸 / A2 图集 / A3 命名 / A4 色数 |
+| **色板一致性** | `python tools/check_palette_conformance.py` | **P1 色板归属 / P2 alpha 二值 / P3 非空 / P4 LUT 自洽** |
+| 导入参数 | `python tools/check_import_presets.py` | 像素字体与纹理的导入参数一致性（架构 §7.3） |
+| 字体覆盖 | `python tools/check_font_coverage.py --csv data/locale/strings.csv --font <ttf>` | S6 缺字 |
+
+> 四道门禁都返回退出码，可串进 CI。`check_assets.py` **仍不可修改**（任务书 §3）；后三个为新增。
+> 退出码约定：`0` 合规 / `1` 有违例 / `2` **not_effective**（扫描范围 0 个资产，不计通过也不计失败）。
+> 注意：后三个是**白名单外的补充工具**，与 `asset_sourcing.md` 同批核准（老板「两个文件都留」），
+> 后续改动请勿静默重写。
+
 ### 8.2 状态条接上后对包 D 的影响（**别漏这条**）
 
 素材换成 16px 高后，`VitalBar` 的 `_bar.custom_minimum_size.y` 约束了 HBox 行高：
@@ -426,20 +440,9 @@ P1–P4 补的就是这半句，且**不碰验收器**。
 > 不要试图把素材压回 10px 高来"省掉重跑"：10 不是 16 的倍数，A1 直接判违例；
 > 且非整数缩放会把像素拉糊。
 
-
-### 8.1 当前生效的四道门禁
-
-| 门禁 | 命令 | 管什么 |
-|---|---|---|
-| 资产 | `python tools/check_assets.py` | A1 尺寸 / A2 图集 / A3 命名 / A4 色数 |
-| **色板一致性** | `python tools/check_palette_conformance.py` | **P1 色板归属 / P2 alpha 二值 / P3 非空 / P4 LUT 自洽** |
-| 导入参数 | `python tools/check_import_presets.py` | 像素字体与纹理的导入参数一致性（架构 §7.3） |
-| 字体覆盖 | `python tools/check_font_coverage.py --csv data/locale/strings.csv --font <ttf>` | S6 缺字 |
-
-> 四道门禁都返回退出码，可串进 CI。`check_assets.py` **仍不可修改**（任务书 §3）；后三个为新增。
-> 退出码约定：`0` 合规 / `1` 有违例 / `2` **not_effective**（扫描范围 0 个资产，不计通过也不计失败）。
-> 注意：后三个是**白名单外的补充工具**，与 `asset_sourcing.md` 同批核准（老板「两个文件都留」），
-> 后续改动请勿静默重写。
+> 接入方式另有硬要求：**不能用 `ProgressBar` 的 fill StyleBox（那是拉伸不是裁切）**。
+> 参考实现与判据见 `build/art_proof/pixel_bar_ref.gd` / `check_pixel_bar.gd`，
+> 对接说明见 `docs/接口说明_美术组致包D_TASK-ART.md` §7.2。
 
 ---
 
