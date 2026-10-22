@@ -46,7 +46,7 @@
 | 采购与授权记录 | 本文件 | ✅ 已交付（已核准保留） |
 | 中文字体 | 见 §3，`assets/fonts/` | ✅ 已交付（Fusion Pixel 12px 简繁各一份，零缺字实测通过） |
 
-### 2.2 MVP 批 — **触发条件：灰盒过了手感闸门后，现在不许下单**
+### 2.2 MVP 批 — **触发条件：灰盒过了手感闸门**（✅ 已过，2026-10-22 老板确认）
 
 > ⚠ 任务书 §5 警告：R1 头号死因是内容量爆炸。**MVP 阶段只对应 1 个安全屋 + 1 个地点 + 1 种丧尸**，多做就是烧钱买返工。
 
@@ -57,7 +57,7 @@
 | 3 | 丧尸 ×1 种 | 16×24，行走 4 帧 + 攻击 2 帧 | `16x16 zombie sprite` | P0 |
 | 4 | tileset · 安全屋 | 16×16 图块，室内地板/墙/家具/工作台 | `16x16 interior shelter tileset` | P0 |
 | 5 | tileset · 超市 | 16×16，货架/商品/收银台/破损版 | `16x16 supermarket tileset` | P0 |
-| 6 | UI 件（四条状态条 + 底板） | 按 `style_contract` §4 全表 | — | **自产，不买** |
+| 6 | UI 件（四条状态条 + 底板） | 按 `style_contract` §4 全表 | — | **自产，不买**。状态条 2 件已出基准图 |
 | 7 | 事件立绘 ×3–5 | 192×256，半身裁切，背景透明 | 可玩批再做 | P1 |
 
 **为什么 UI 件自产不买**：UI 件必须严格贴合 640×360 的栅格与九宫格边界（§4.1 / §4.2）。市面上的 UI 包尺寸是随机的，买回来要么重切要么重画，**成本高于直接做**。而且 UI 只用 6 色（§3.1），画起来比买更快。
@@ -149,6 +149,7 @@ python tools/check_font_coverage.py \
 |---|---|---|---|---|
 | DB32 色板（32 色值） | Lospec / Aseprite 内置预设；与 Hugging Face `palettes.json` 交叉核对，色值完全一致 | 社区长期免费使用 | ✅ 老板核准接受惯例（U2 结案） | 2026-10-19 |
 | `ui_palette_db32.png` | 由上述色值**程序化生成**（32×16，非第三方素材） | 本项目自产 | ✅ 无外部依赖 | 2026-10-19 |
+| `ui_bar_frame.png` / `ui_bar_fill.png` | **本项目程序化生成**（`build/art_proof/gen_ui_bar.py`，可复跑） | 本项目自产 | ✅ 无第三方素材，纹理由脚本定义 | 2026-10-22 |
 | **Fusion Pixel Font 12px** | TakWolf/fusion-pixel-font，release `2026.10.16` | **SIL OFL 1.1**（`assets/_licenses/fusion_pixel_font_OFL_1.1.txt`） | ✅ 已入包，md5 与上游逐字节一致，零缺字 | 2026-10-21 |
 | ├ 上游 · Ark Pixel | TakWolf/ark-pixel-font | SIL OFL 1.1（`fusion_pixel_upstream_ark_pixel_OFL.txt`） | ✅ 已归档 | 2026-10-21 |
 | ├ 上游 · Cubic 11 | ACh-K/Cubic-11 | SIL OFL 1.1（`fusion_pixel_upstream_cubic_11_OFL.txt`） | ✅ 已归档 | 2026-10-21 |
