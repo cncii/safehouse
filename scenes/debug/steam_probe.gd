@@ -160,15 +160,21 @@ func _test_degrade_chain_1012() -> void:
 		svc.backend_ready())
 
 	# ② 降级有日志记录（要真的在日志里找到）
-	# ⚠ 踩坑（实测）：最初**跳过了活动日志 godot.log**（理由同 pii_probe：内容在变），
-	#   结果降级判据永远红——因为 Logger.log() 只是 print(line)，
-	#   记录落在**本次运行的 stdout**（= 活动日志 godot.log），历史日志里没有当次记录。
-	# → 正确口径：活动日志**也要读**（降级记录必然在这里）；
-	#   只找降级关键词，不会被别的探针输出干扰。
+	# ⚠⚠ 踩坑（2026-10-22 变异测试逼出来的，勿改回）：
+	#   ① 最初**跳过了活动日志 godot.log**（理由同 pii_probe：内容在变），
+	#      结果降级判据永远红——因为 Logger.log() 只是 print(line)，
+	#      记录落在**本次运行的 stdout**（= 活动日志 godot.log）。
+	#   ② 改成"扫所有日志文件"后 → **假绿**：Godot 每次启动会把旧 godot.log
+	#      改名归档（godot<时间戳>.log），历史归档里残留着**上一次**的 null_backend 记录，
+	#      扫到它就判绿 → 变异体 C13（去掉降级日志）因此完全测不出来。
+	# → 正确口径：**只读活动日志 godot.log**（Godot 启动时归档旧的、新建空的，
+	#   所以 godot.log 只含**本次运行**的内容）。历史归档一律不读。
 	var logs := _collect_log_files()
 	var found_log := false
 	var log_files_checked := 0
 	for f: String in logs:
+		if f.get_file() != "godot.log":
+			continue   # ★ 只认活动日志（= 本次运行）；历史归档含上次的残留 → 会假绿
 		var text := _read_text(f)
 		if text.is_empty():
 			continue
@@ -176,7 +182,7 @@ func _test_degrade_chain_1012() -> void:
 		if text.contains("null_backend") or text.contains("no steam env"):
 			found_log = true
 			break
-	_t("1012(2): degradation recorded in log (checked %d log files)" % log_files_checked,
+	_t("1012(2): degradation recorded in log (checked %d active log file)" % log_files_checked,
 		found_log)
 	# ⚠ 时序：Logger.log() 是 print(line)，**落盘**由 Godot 的 log-file 机制异步做。
 	#   判据可能在落盘前就读 → 偶发红。
@@ -186,13 +192,15 @@ func _test_degrade_chain_1012() -> void:
 		for attempt in range(20):
 			OS.delay_msec(50)
 			for f2: String in _collect_log_files():
+				if f2.get_file() != "godot.log":
+					continue   # ★ 同样只认活动日志（历史归档会造成假绿）
 				var t2 := _read_text(f2)
 				if not t2.is_empty() and (t2.contains("null_backend") or t2.contains("no steam env")):
 					found_log = true
 					break
 			if found_log:
 				break
-		_t("1012(2b): degradation log found after blocking wait (async log flush)", found_log)
+	_t("1012(2b): degradation log found after blocking wait (async log flush)", found_log)
 
 	# ③ 降级后游戏继续可玩：**行为契约**检查，而不是"有没有崩"
 	# ⚠ 不能写 `var crashed := false`（永远 false = 恒真式）。

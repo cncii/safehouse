@@ -124,7 +124,7 @@
   },
   {
     "id": "C10-steam-degrade",
-    "desc": "NullSteam 降级被绕过（backend 不建立——S 构建要求脱离 Steam 可运行）",
+    "desc": "NullSteam 降级被完全绕过（_degrade 什么都不做——S 构建要求脱离 Steam 可运行）",
     "file": "src/platform/steam_service.gd",
     "probe": "steam",
     "red": [
@@ -133,7 +133,8 @@
       "s9: NullSteam calls are safe no-ops",
       "1012(1): backend degraded to null",
       "1012(1b): backend_ready() true (degraded backend IS usable)",
-      "1012(2): degradation recorded in log (checked 4 log files)"
+      "1012(2): degradation recorded in log (checked 1 active log file)",
+      "1012(2b): degradation log found after blocking wait (async log flush)"
     ],
     "captured": true,
     "no_collateral": true,
@@ -171,7 +172,8 @@
     "file": "src/platform/steam_service.gd",
     "probe": "steam",
     "red": [
-      "1012(2): degradation recorded in log (checked 4 log files)"
+      "1012(2): degradation recorded in log (checked 1 active log file)",
+      "1012(2b): degradation log found after blocking wait (async log flush)"
     ],
     "captured": true,
     "no_collateral": true,
@@ -187,8 +189,7 @@
       "s9: backend_kind reports 'null' without Steam",
       "s9: NullSteam calls are safe no-ops",
       "1012(1): backend degraded to null",
-      "1012(1b): backend_ready() true (degraded backend IS usable)",
-      "1012(2): degradation recorded in log (checked 4 log files)"
+      "1012(1b): backend_ready() true (degraded backend IS usable)"
     ],
     "captured": true,
     "no_collateral": true,
@@ -219,5 +220,44 @@
     "captured": true,
     "no_collateral": true,
     "note": "应红 1012(3d)——降级后端必须无状态（否则成就队列会静默丢） → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C17-p17b-log-not-persisted",
+    "desc": "events 存档段不写 event_log（跨存档后事件日志全丢——P17b 核心）",
+    "file": "src/systems/event_system.gd",
+    "probe": "p17b",
+    "red": [
+      "p17b: event_log restored from real file",
+      "p17b: restored log content identical",
+      "p17b: replay after load does not grow log",
+      "p17b: bak carries non-empty event_log"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红恢复族——存档段不带日志 = 跨存档后重放会重新掷骰 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C18-p17b-cursor-not-persisted",
+    "desc": "events 存档段不写 scheduled_cursor（读档后定时事件游标归零——重复发放）",
+    "file": "src/systems/event_system.gd",
+    "probe": "p17b",
+    "red": [
+      "p17b: cursor restored from real file"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红游标恢复判据 → 捕获 ✓ 且无误伤 ✓"
+  },
+  {
+    "id": "C19-p17b-idempotency-off",
+    "desc": "幂等查重失效（破 _fire() 内层查重——所有路径的必经之地）",
+    "file": "src/systems/event_system.gd",
+    "probe": "p17b",
+    "red": [
+      "p17b: inner _fire() replay does not grow log"
+    ],
+    "captured": true,
+    "no_collateral": true,
+    "note": "应红重放族——读档后重放必须不重复发放 → 捕获 ✓ 且无误伤 ✓"
   }
 ]

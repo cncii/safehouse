@@ -8,14 +8,15 @@
 
 ## 一、要并入什么
 
-战斗组现有 4 套无头自检，合计 **107 条断言**：
+战斗组现有 5 套无头自检，合计 **167 条断言**：
 
 | 探针 | 场景 | 断言 | 覆盖 |
 |---|---|---|---|
 | combat | `res://scenes/debug/combat_probe.tscn` | 41 | W1 状态机/无敌帧 · W2 物化 · **M19 逐项相等** · batch 计数 · 破防 |
 | event | `res://scenes/debug/event_probe.tscn` | 33 | M10 封闭集 · P8/P9 · **P17 零掷骰重放** · 结构化谓词 · 游标 · 存档段 |
 | steam | `res://scenes/debug/steam_probe.tscn` | 12 | NullSteam 降级 · **S9 零出站（静态+control）** · S10 成就幂等 |
-| pii | `res://scenes/debug/pii_probe.tscn` | 21 | **S10 PII 五类扫描**（含反向对照 + 空目录判负） |
+| pii | `res://scenes/debug/pii_probe.tscn` | 27 | **S10 PII 五类扫描**（含反向对照 + 空目录判负） |
+| p17b | `res://scenes/debug/p17b_probe.tscn` | 36 | **P17b 跨存档重放**（真实文件级 save/load 往返 + 重放不掷骰 + 幂等） |
 
 > 数字以 `git` HEAD `75693cf` 实跑为准，每个探针独立跑、互不干扰。
 
@@ -25,7 +26,7 @@
 
 Godot 4.3 的 `-s` 模式下 autoload **名字在编译期不可解**（写 `State.read(...)` 报
 `Identifier not found`），凡引用 autoload **实例方法**的脚本都无法在 `-s` 下编译。
-战斗组 4 套探针都引用 `State` / `Rng`，故**必须**走场景。
+战斗组 5 套探针都引用 `State` / `Rng`，故**必须**走场景。
 
 这一点与测试组修订 #1（stage 4 改场景方式）**口径一致**，可直接照抄 stage 4 的写法。
 
@@ -36,7 +37,7 @@ Godot 4.3 的 `-s` 模式下 autoload **名字在编译期不可解**（写 `Sta
 在 `tools/test.ps1` 的 stage 4 **之后**、stage 5 **之前**插入：
 
 ```powershell
-# stage 4b — 战斗组自检（包 C+E；4 套探针，场景方式）
+# stage 4b — 战斗组自检（包 C+E；5 套探针，场景方式）
 # 归属说明：本段由战斗组提供断言与场景，编排位置与断言计数口径由包 F 定。
 # ⚠ 必须带 --quit-after：探针自己会 get_tree().quit()，但**加载失败时引擎不会自动退出**，
 #   不加此参数 CI 会挂死（实测踩过：某次失败挂了 180 秒直到超时）。
@@ -46,7 +47,8 @@ if ($godotBin) {
         @{ name = "combat"; scene = "res://scenes/debug/combat_probe.tscn"; asserts = 41 },
         @{ name = "event";  scene = "res://scenes/debug/event_probe.tscn";  asserts = 33 },
         @{ name = "steam";  scene = "res://scenes/debug/steam_probe.tscn";  asserts = 12 },
-        @{ name = "pii";    scene = "res://scenes/debug/pii_probe.tscn";    asserts = 21 }
+        @{ name = "pii";    scene = "res://scenes/debug/pii_probe.tscn";    asserts = 27 },
+        @{ name = "p17b";   scene = "res://scenes/debug/p17b_probe.tscn";   asserts = 36 }
     )
     foreach ($p in $combatProbes) {
         Run-Stage "4b 战斗组自检-$($p.name)" {

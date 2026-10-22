@@ -39,6 +39,7 @@ PROBE_ASSERTS = {
     "event": 37,
     "steam": 21,
     "pii": 27,
+    "p17b": 36,
 }
 
 
@@ -110,10 +111,16 @@ def run_probe(probe):
             reds.append(m.group(1).strip())
         m2 = re.search(r"gate run: (\d+) pass / (\d+) fail", line)
         if m2:
-            total = int(m2.group(2))
+            # ★ 解析口径（2026-10-22 实测踩坑）：战斗组探针的汇总行是
+            #   `--- xxx_probe: %d pass / %d fail ---`，两个数是 **pass 数** 与 **fail 数**。
+            #   我原先取 group(2) 当"断言总数" → 拿到的是 fail 数（正常情况恒为 0）
+            #   → total 永远 0 → 后面"探针 0 条断言 = 探针没跑起来"的判据
+            #   **误伤了每一个变异体**（全被判成"变异无效"）。
+            # → 正确口径：总数 = pass + fail（= 实际执行的断言条数）。
+            total = int(m2.group(1)) + int(m2.group(2))
         m3 = re.search(r"probe: (\d+) pass / (\d+) fail", line)
         if m3:
-            total = int(m3.group(2))
+            total = int(m3.group(1)) + int(m3.group(2))
     return reds, total, r.returncode
 
 
@@ -237,16 +244,29 @@ MUTANTS = [
     },
     {
         "id": "C10-steam-degrade",
-        "desc": "NullSteam 降级被绕过（backend 不建立——S 构建要求脱离 Steam 可运行）",
+        "desc": "NullSteam 降级被完全绕过（_degrade 什么都不做——S 构建要求脱离 Steam 可运行）",
         "file": "src/platform/steam_service.gd",
-        "old": '\t\t_degrade("init_failed")',
-        "new": '\t\tpass  # MUTATED C10: no degrade',
+        # ⚠ 锚点纪律（三次踩坑换来的，勿改）：
+        #   ① 必须打在**所有降级路径的共同点**上。我先前打在
+        #      `if _backend == null: _degrade("init_failed")` —— 但**有 GodotSteam 时
+        #      那条分支根本不执行**（走的是 `_degrade("binding_script_missing")`）
+        #      → 变异体不可达 → 判据测不到它（报"未捕获"）。
+        #   ② 锚点不能与 C14 重复（C14 只把 `_backend = load(NULL_PATH).new()`
+        #      换成 pass，日志照写；本变异让**整个 _degrade 什么都不做**，日志也没有）
+        #      → 两者性质不同、覆盖数不虚高。
+        #   ③ 跨行片段必须**完整匹配到行尾**（含中文注释），
+        #      否则 replace 会留下半个注释 → 编译失败 → 探针 0 条断言。
+        #   ④ 不能是**空变异**（只加注释不改行为）——那样判据当然测不出来。
+        "old": 'func _degrade(reason: String) -> void:\r\n\t_backend = load(NULL_PATH).new()',
+        "new": 'func _degrade(reason: String) -> void:\r\n\treturn   # MUTATED C10: degradation does nothing',
         "probe": "steam",
-        "target": ["s9: backend resolved", "s9: backend_kind reports 'null'"],
-        "chain_ok": ["s9: NullSteam calls are safe no-ops",
+        "target": ["1012(1b): backend_ready() true", "s9: backend resolved"],
+        "chain_ok": ["s9: backend_kind reports 'null' without Steam",
+                     "s9: NullSteam calls are safe no-ops",
                      "1012(1): backend degraded to null",
-                     "1012(1b): backend_ready() true",
-                     "1012(2): degradation recorded in log"],
+                     "1012(2): degradation recorded in log",
+                     "1012(2b): degradation log found after blocking wait",
+                     "1012(3b): degraded backend_id == 'null'"],
         "expect": "应红降级族——S 构建硬要求",
     },
     {
@@ -268,7 +288,7 @@ MUTANTS = [
         "new": 'if false:\n\t\treturn bytes.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP).get_string_from_utf8()',
         "probe": "pii",
         "target": ["decompressed to parsable JSON"],
-        "chain_ok": ["save.sav PII hits == 0"],
+        "chain_ok": ["PII hits == 0"],   # 判据名含 %s 占位，用稳定片段匹配
         "expect": "★ 关键：不解压就扫 → 存档内容根本读不到 → 判据必须变红（防空转假绿）",
     },
     {
@@ -279,7 +299,8 @@ MUTANTS = [
         "new": '\tpass   # MUTATED C13: silent degradation (no log)',
         "probe": "steam",
         "target": ["1012(2): degradation recorded in log"],
-        "chain_ok": [],
+        # 1012(2b) 是 1012(2) 的异步落盘重试版 —— 同因连锁，不是误伤
+        "chain_ok": ["1012(2b): degradation log found after blocking wait"],
         "expect": "应红 1012(2)——静默降级 = 出问题查不到",
     },
     {
@@ -319,6 +340,57 @@ MUTANTS = [
         "target": ["1012(3d): degraded backend holds no business state"],
         "chain_ok": [],
         "expect": "应红 1012(3d)——降级后端必须无状态（否则成就队列会静默丢）",
+    },
+    {
+        "id": "C17-p17b-log-not-persisted",
+        "desc": "events 存档段不写 event_log（跨存档后事件日志全丢——P17b 核心）",
+        "file": "src/systems/event_system.gd",
+        "old": '\t\t"event_log": event_log.duplicate(true),',
+        "new": '\t\t"event_log": [],',
+        "probe": "p17b",
+        "target": ["event_log restored from real file", "restored log content identical"],
+        "chain_ok": ["bak carries non-empty event_log",
+                     "parsed events section has event_log",
+                     "replay after load does not grow log",
+                     "inner _fire() replay does not grow log"],
+        "expect": "应红恢复族——存档段不带日志 = 跨存档后重放会重新掷骰",
+    },
+    {
+        "id": "C18-p17b-cursor-not-persisted",
+        "desc": "events 存档段不写 scheduled_cursor（读档后定时事件游标归零——重复发放）",
+        "file": "src/systems/event_system.gd",
+        "old": '\t\t"scheduled_cursor": _cursor,',
+        "new": '\t\t"scheduled_cursor": 0,',
+        "probe": "p17b",
+        "target": ["cursor restored from real file"],
+        "chain_ok": ["scheduled cursor advanced before save"],
+        "expect": "应红游标恢复判据",
+    },
+    {
+        "id": "C19-p17b-idempotency-off",
+        "desc": "幂等查重失效（破 _fire() 内层查重——所有路径的必经之地）",
+        "file": "src/systems/event_system.gd",
+        # ⚠ 锚点纪律（三条，全是实测踩出来的）：
+        #   ① 必须破**内层** _fire() 的查重：fire() 查重后调 _fire()，
+        #      而 _fire() 内部**自己也查一次重** → 破外层 fire() 时内层仍拦住
+        #      → 行为不变 → 判据测不到（实测踩过）。
+        #      内层是所有路径（roll_daily / check_scheduled / poll_conditions / fire）
+        #      的必经之路。
+        #   ② 跨行片段必须**完整匹配到行尾**（含中文注释）：
+        #      我先前写成 `...\n\t\treturn   # P9 幂等：同键不重复发放`（漏了中文后半段），
+        #      replace 把中文注释的 "/" 留在 `if false:` 后面 →
+        #      "Expected statement, found '/' instead." → 整个文件编译失败 →
+        #      探针 0 条断言 → 工具误判成"捕获"（其实是变异无效）。
+        #   ③ 不能留半截中文注释（`\n\t# ` 那种补丁会让文件变脏）。
+        "old": '\tif _has_logged(key):\n\t\treturn _log_entry(key)',
+        "new": '\tif false:\n\t\treturn _log_entry(key)   # MUTATED C19: idempotency off',
+
+        "probe": "p17b",
+        "target": ["inner _fire() replay does not re-apply effect",
+                   "inner _fire() replay does not grow log"],
+        "chain_ok": ["replay after load does not re-apply effect",
+                     "replay after load does not grow log"],
+        "expect": "应红重放族——读档后重放必须不重复发放",
     },
 ]
 
@@ -366,6 +438,21 @@ def main():
             captured = any(in_target(r) for r in reds)
             # 探针被中断（崩溃）时：目标判据没红，但断言数变少 → 也是捕获。
             # 判据本体写作"调用后还能继续执行"，崩溃就等于这条判据不成立。
+            #
+            # ⚠⚠ 但**断言数为 0 是另一回事**（2026-10-22 实测踩坑）：
+            #   0 条断言 = 探针**根本没跑起来**（编译失败 / 场景加载失败），
+            #   不是"跑到一半崩了"。若把它判成"捕获"，就会把
+            #   「变异体本身写坏了代码」伪装成「判据抓到了变异」——
+            #   这是**假绿**，比假红更危险（判据看起来有牙，其实没测到）。
+            #   → 0 条断言一律判**变异无效**（invalid），不算捕获。
+            if total == 0:
+                print(f"  ✗ 探针 0 条断言 = 探针未跑起来（编译/加载失败）"
+                      f"→ 判**变异无效**，不算捕获")
+                results.append({"id": rid, "desc": mu["desc"], "file": rel,
+                                "probe": mu["probe"], "invalid": True,
+                                "captured": False, "no_collateral": False,
+                                "note": "探针 0 条断言：变异体导致编译/加载失败，变异无效"})
+                continue
             if not captured and size_changed and total < expect_total:
                 captured = True
                 print(f"  → 探针在目标断言前中断（断言数 {total} < {expect_total}）"
