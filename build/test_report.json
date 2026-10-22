@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-10-21T13:45:40.9130920+08:00",
+    "generated_at":  "2026-10-22T14:49:12.4162406+08:00",
     "stages":  [
                    {
                        "ok":  true,
@@ -17,7 +17,7 @@
                        "asserts":  1
                    },
                    {
-                       "ok":  true,
+                       "ok":  false,
                        "name":  "3 i18n 扫描",
                        "asserts":  1
                    },
@@ -32,5 +32,5 @@
                        "asserts":  4
                    }
                ],
-    "total_asserts":  147
+    "total_asserts":  146
 }

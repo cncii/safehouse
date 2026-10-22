@@ -33,9 +33,28 @@ func _ready() -> void:
 		print("[boot] FAILED - %d items" % problems.size())
 		get_tree().quit(1)
 		return
-	# 自检通过后进入主菜单（分包初期先停在空场景）
-	# SceneRouter.goto("main_menu")  ← 待 UI 包接入
+	# 自检通过后进入主菜单（TASK-G M1：灰盒主流程接线完成）
+	_apply_saved_profile()
+	_enter_main_menu()
+
+
+func _apply_saved_profile() -> void:
 	# 应用已保存键位（S6）：profile.keybinds → InputMap。UI 包（表现组）接线。
 	KeybindSettings.apply_saved()
 	# 全项目像素字体装配（S5）：root Window.theme，切场景不丢、不改 project.godot
 	UITheme.install(get_tree(), Localize.get_lang())
+
+
+## SceneRouter 挂 root（非 current_scene——切场景要 free current_scene，
+## 路由器自己必须活在被 free 的对象之外），随后切主菜单。首跳无淡入淡出。
+func _enter_main_menu() -> void:
+	var router := SceneRouter.new()
+	router.name = "SceneRouter"
+	get_tree().root.add_child.call_deferred(router)
+	call_deferred("_goto_menu")
+
+
+func _goto_menu() -> void:
+	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
+	if router:
+		router.goto(&"main_menu", {}, 0.0)

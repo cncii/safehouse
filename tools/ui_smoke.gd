@@ -28,6 +28,7 @@ func _ready() -> void:
 	_test_keybinds()
 	await _test_loop_panel()
 	_test_audio_alarms()
+	await _test_m1_world()
 	_finish()
 
 # ── 本地化链路 ──
@@ -85,10 +86,18 @@ func _test_clock() -> void:
 	var clock := HudClock.new()
 	add_child(clock)
 
-	_t("clock: 0 GH -> 00:00", clock._gh_to_clock(0.0) == "00:00")
-	_t("clock: 14.5 GH -> 14:30", clock._gh_to_clock(14.5) == "14:30")
-	_t("clock: 23.9 GH -> 23:54", clock._gh_to_clock(23.9) == "23:54")
-	_t("clock: over 24 clamps", clock._gh_to_clock(30.0) == "00:00")
+	# 修订 #9（TASK-G M1）：GH 口径改为「日起点 + 已过」——compose_clock(elapsed, mark)
+	# mark=0 保留旧覆盖语义（换算本身），mark=5/6 验证阶段起点偏移
+	_t("clock: mark0 0 GH -> 00:00", HudClock.compose_clock(0.0, 0.0) == "00:00")
+	_t("clock: mark0 14.5 GH -> 14:30", HudClock.compose_clock(14.5, 0.0) == "14:30")
+	_t("clock: mark0 23.9 GH -> 23:54", HudClock.compose_clock(23.9, 0.0) == "23:54")
+	_t("clock: over 24 clamps", HudClock.compose_clock(30.0, 0.0) == "00:00")
+	# 期望值独立写死（05:00/20:00/06:00 是设计锚点，不从代码派生）
+	_t("clock: stage A day start 05:00 (elapsed=0, mark=5)", HudClock.compose_clock(0.0, 5.0) == "05:00")
+	_t("clock: stage A 18:00 curfew (elapsed=13, mark=5)", HudClock.compose_clock(13.0, 5.0) == "18:00")
+	_t("clock: stage B dawn 06:00 (elapsed=0, mark=6)", HudClock.compose_clock(0.0, 6.0) == "06:00")
+	# State 未命中 stage（float 0.0）→ 走 A 路径 mark，不得崩、不得显示 "0"
+	_t("clock: unset stage still renders clock", clock._clock_text(0.0) == "05:00")
 
 	# 关键：State.read 未命中返回 0.0，是 float 不是 string → 必须显示 fallback 而不是 "0"
 	_t("clock: unset stage shows fallback not literal zero",
@@ -331,6 +340,104 @@ func _has_type(n: Node, script_class: String) -> bool:
 		if _has_type(c, script_class):
 			return true
 	return false
+
+# ── TASK-G M1 灰盒世界 ──
+# 能抓：start_new_game 编排断链（系统未挂 / 四条状态未归位 / 时钟未归位到 05:00）、
+#       拾取→背包链路断（item_id 打错 / add 返回 0 / 二次触发不幂等）、
+#       消费链路断（consume 增量丢失 / 背包不扣减）、
+#       场景注册表漏 key、菜单词条退化为裸 KEY。
+# ⚠ 本块整组只 new 一次 GameWorld：InventorySystem/TimeSystem/MapSystem 的
+#   Save.register_persistence 无 static 守卫（实例侧注册），第二次注册 assert 崩。
+# ⚠ start_new_game 后的所有断言与 start_new_game 同栈同步执行（中间不 await）——
+#   GameLoop 每物理帧 +1 / Vitals 每帧掉饥饿，任何 await 都会让"精确 100 / 21600"变骰子。
+func _test_m1_world() -> void:
+	var world := GameWorld.new()
+	get_tree().root.add_child(world)
+	await get_tree().process_frame    # GameWorld._ready 连 GameLoop 信号
+	world.start_new_game(42)
+
+	_t("m1: systems mounted (time/vitals/inventory/map/combat)",
+		world.time_sys != null and world.vitals != null \
+		and world.inventory != null and world.map_sys != null and world.combat != null)
+	_t("m1: HUD mounted by world (cross-scene lifetime)",
+		world.hud != null and world.hud.get_parent() == world)
+	_t("m1: new game vitals baseline all 100",
+		float(State.read("player.hp")) == 100.0 and float(State.read("player.stamina")) == 100.0 \
+		and float(State.read("player.hunger")) == 100.0 and float(State.read("player.thirst")) == 100.0)
+	# 期望值 5GH 独立写死（05:00 设计锚点），不取自 GameWorld 自算——防恒真式
+	_t("m1: clock reset to 05:00 mark (21600 frames)",
+		GameLoop.elapsed_ticks == 5 * GameLoop.FRAMES_PER_GH)
+	_t("m1: map current_node seeded safehouse",
+		str(State.read("map.current_node")) == "safehouse")
+	var unlocked: Variant = State.read("map.unlocked_nodes")
+	var has_market := false
+	if typeof(unlocked) == TYPE_ARRAY or typeof(unlocked) == TYPE_PACKED_STRING_ARRAY:
+		for n: Variant in (unlocked as Array):
+			if str(n) == "supermarket":
+				has_market = true
+	_t("m1: supermarket unlocked for graybox outing", has_market)
+
+	# 场景壳：拾取链路（不经 SceneRouter，直接挂载构建）
+	var scene := SafehouseScene.new()
+	add_child(scene)
+	var zone := _find_zone(scene, &"supplies")
+	_t("m1: safehouse has supplies interaction zone", zone != null)
+	if zone != null:
+		zone.trigger()
+		_t("m1: pickup lands in inventory (2+2 per graybox data)",
+			world.inventory.count_of(&"item_food_can") == 2 \
+			and world.inventory.count_of(&"item_water_bottle") == 2)
+		zone.trigger()    # 二次触发必须幂等（一次性物资堆）
+		_t("m1: pickup is one-shot (idempotent trigger)",
+			world.inventory.count_of(&"item_food_can") == 2)
+	_t("m1: bed and door zones present (silent M3/M2 placeholders)",
+		_find_zone(scene, &"bed") != null and _find_zone(scene, &"door_main") != null)
+
+	# 消费链路：consume 返回增量 + 背包扣减（+25 定稿值来自 survival.json，判据冻结 25）
+	var delta: Dictionary = world.inventory.consume(&"item_food_can", 1)
+	_t("m1: consume returns hunger delta +25",
+		is_equal_approx(float(delta.get("hunger", 0.0)), 25.0))
+	_t("m1: consume decrements inventory",
+		world.inventory.count_of(&"item_food_can") == 1)
+
+	# 主菜单壳：按钮数 + 词条非裸 KEY
+	var menu := MainMenuScreen.new()
+	add_child(menu)
+	var btns := _find_buttons(menu)
+	_t("m1: main menu has 4 action buttons", btns.size() == 4)
+	var raw_key_leak := false
+	for b: Node in btns:
+		if String((b as Button).text).begins_with("MAIN_MENU_"):
+			raw_key_leak = true
+	_t("m1: menu labels localized (no raw KEY leak)", not raw_key_leak)
+
+	# 场景注册表（SceneRouter 侧，TASK-G 主流程三场景）
+	_t("m1: router registry has main_menu/settings/safehouse",
+		SceneRouter.SCENE_PATHS.has("main_menu") and SceneRouter.SCENE_PATHS.has("settings") \
+		and SceneRouter.SCENE_PATHS.has("safehouse"))
+
+	menu.free()
+	scene.free()
+	world.free()
+
+
+func _find_zone(n: Node, id: StringName) -> InteractionZone:
+	for c: Node in n.get_children():
+		if c is InteractionZone and (c as InteractionZone).zone_id == id:
+			return c
+		var sub := _find_zone(c, id)
+		if sub != null:
+			return sub
+	return null
+
+
+func _find_buttons(n: Node) -> Array:
+	var out: Array = []
+	for c: Node in n.get_children():
+		if c is Button:
+			out.append(c)
+		out.append_array(_find_buttons(c))
+	return out
 
 func _t(name: String, cond: bool) -> void:
 	if cond:

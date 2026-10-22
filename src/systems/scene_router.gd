@@ -35,6 +35,11 @@ const SCENE_PATHS := {
 	"boot": "res://scenes/boot/boot.tscn",
 	"combat_arena": "res://scenes/debug/combat_arena.tscn",
 	"hud_graybox": "res://scenes/ui/hud_graybox.tscn",
+	# TASK-G 灰盒主流程（表现组 M1）：
+	"main_menu": "res://scenes/ui/main_menu.tscn",
+	"settings": "res://scenes/ui/settings.tscn",
+	# 键名与 locations.json 节点 id 严格一致（TimeSystem/存档按 player.scene_id 判定）
+	"safehouse": "res://scenes/game/safehouse.tscn",
 }
 
 var _current_id: StringName = &"boot"

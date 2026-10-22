@@ -1,0 +1,13 @@
+{
+  "$schema_note": "TASK-G 灰盒主流程专用数值（表现组牵头）。三段式键名：域_对象_属性_单位（M28-a 同款）。",
+  "$provisional": "本文件全部数值为 PROVISIONAL——灰盒手感闸门（TASK-G §7）通过前的脚手架，缺数已登记 data/UNDEFINED.md（D-G01）。设计侧签字后逐键迁移到正式文件并删除本文件。",
+  "$scope": "仅 TASK-G 灰盒消费。正式玩法数值的权威源仍是 data/balance/{time,survival,loop,combat}.json——两处不许出现同一事实（架构 §18.2）",
+
+  "player_move_speed_px_per_sec": 120,
+  "player_interact_radius_px": 28,
+
+  "starter_supplies": [
+    { "item_id": "item_food_can", "count": 2 },
+    { "item_id": "item_water_bottle", "count": 2 }
+  ]
+}

@@ -91,14 +91,20 @@ var RE_KEY := "Localize\\.(?:text|textf)\\(\\s*\"([^\"]*)\""
 # ACTION_ 拼接×2 / KEYBIND_LISTENING / KEYBIND_RESET，ui_smoke.gd 断言对照的
 # ACTION_ 拼接 / ACTION_MOVE_RIGHT）并删除 SETTINGS_KEYBIND_TODO 占位调用点，
 # 冻结基线随之更新 25 → 30。
+# 修订 #9（2026-10-22）：TASK-G M1 主菜单/背包 UI +6 字面量（main_menu_screen.gd 的
+# MAIN_MENU_TITLE / MAIN_MENU_HINT——NEW/CONTINUE/SETTINGS/QUIT 走 _button(key) 参数
+# 传递不构成字面量；inventory_panel.gd 的 INV_TITLE / INV_USE / INV_EMPTY / INV_CAPACITY），
+# 冻结基线随之更新 30 → 36。
 var EXPECT_KEYS: Array = [
 		"ACTION_", "ACTION_", "ACTION_", "ACTION_MOVE_RIGHT",
 		"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
 		"HUD_STAGE_UNKNOWN", "HUD_STAGE_UNKNOWN", "HUD_VITAL_HP",
+		"INV_CAPACITY", "INV_EMPTY", "INV_TITLE", "INV_USE",
 		"KEYBIND_LISTENING", "KEYBIND_RESET",
 		"LANG_NAME_EN", "LANG_NAME_ZH_CN", "LANG_NAME_ZH_TW",
 		"LOOP_BLOCK_", "LOOP_BLOCK_", "LOOP_CHAIN_", "LOOP_CHAIN_", "LOOP_CHAIN_",
 		"LOOP_DATA_NOT_WIRED", "LOOP_DATA_NOT_WIRED", "LOOP_PANEL_TITLE", "LOOP_REPORT_GAP",
+		"MAIN_MENU_HINT", "MAIN_MENU_TITLE",
 		"NO_SUCH_KEY_XYZ", "SETTINGS_CLOSE", "SETTINGS_KEYBIND",
 		"SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
 	]
@@ -107,6 +113,7 @@ var EXPECT_KEYS: Array = [
 # 修订 #7：随逻辑组循环面板文案更新 17 → 33（HUD×9 / LANG×3 / LOOP×16 / SETTINGS×5）。
 # 修订 #8：随表现组 S6 键位词条更新 33 → 47（+ACTION×10 / +KEYBIND×5 / -SETTINGS_KEYBIND_TODO，
 # 即 HUD×9 / LANG×3 / LOOP×16 / SETTINGS×4 / ACTION×10 / KEYBIND×5）。
+# 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58（+MAIN_MENU×6 / +INV×4 / +INTERACT_PICK）。
 var EXPECT_CSV_KEYS: Array = [
 	"HUD_CLOCK_DAY", "HUD_CLOCK_TIME", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
 	"HUD_STAGE_UNKNOWN", "HUD_VITAL_HP", "HUD_VITAL_HUNGER", "HUD_VITAL_STAMINA",
@@ -121,6 +128,10 @@ var EXPECT_CSV_KEYS: Array = [
 	"ACTION_PAUSE", "ACTION_TECH_TREE",
 	"KEYBIND_CONFLICT", "KEYBIND_LISTENING", "KEYBIND_REBIND", "KEYBIND_RESET",
 	"KEYBIND_RESET_DONE",
+	"MAIN_MENU_CONTINUE", "MAIN_MENU_HINT", "MAIN_MENU_NEW", "MAIN_MENU_QUIT",
+	"MAIN_MENU_SETTINGS", "MAIN_MENU_TITLE",
+	"INV_CAPACITY", "INV_EMPTY", "INV_TITLE", "INV_USE",
+	"INTERACT_PICK",
 ]
 
 func _ready() -> void:
@@ -264,8 +275,9 @@ func _run_localize_asserts() -> void:
 	# 空跑判负：表必须真的加载出来，否则下面所有值断言都在空表上跑（陷阱 2）
 	# 修订 #7：随逻辑组循环面板文案更新 17 → 33
 	# 修订 #8：随表现组 S6 键位词条更新 33 → 47（strings.csv 现 47 有效键）
-	_t("A0-4 locale table loaded (size == 47, else all value asserts are void)",
-		L._table.size() == 47)
+	# 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58
+	_t("A0-4 locale table loaded (size == 58, else all value asserts are void)",
+		L._table.size() == 58)
 	if L._table.size() == 0:
 		_block(["A2-1", "A2-2", "A2-3", "A2-4", "A2-5", "A3-2", "A4-1"],
 			"blocked: locale table empty")

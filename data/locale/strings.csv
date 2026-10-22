@@ -29,7 +29,7 @@ LOOP_BLOCK_UNLOCK,未解锁,未解鎖,Locked
 LOOP_BLOCK_POWER,未供电,未供電,No Power
 LOOP_BLOCK_FILTER_CORE,滤芯脏,濾芯髒,Filter Dirty
 LOOP_BLOCK_NONE,正常,正常,OK
-LOOP_REPORT_GAP,⚠ {chain} 缺口 {gap}/天 —— 库存 {stock}，约 {days} 天后耗尽,⚠ {chain} 缺口 {gap}/天 —— 庫存 {stock}，約 {days} 天後耗盡,⚠ {chain} gap {gap}/d - stock {stock}, runs out in ~{days}d
+LOOP_REPORT_GAP,⚠ {chain} 缺口 {gap}/天 —— 库存 {stock}，约 {days} 天后耗尽,⚠ {chain} 缺口 {gap}/天 —— 庫存 {stock}，約 {days} 天後耗盡,"⚠ {chain} gap {gap}/d - stock {stock}, runs out in ~{days}d"
 LOOP_DATA_NOT_WIRED,循环数据未接线,循環數據未接線,Loop data not wired
 ACTION_MOVE_UP,上移,上移,Move Up
 ACTION_MOVE_DOWN,下移,下移,Move Down
@@ -46,3 +46,14 @@ KEYBIND_LISTENING,按新按键（ESC 取消）,按新按鍵（ESC 取消）,Pres
 KEYBIND_CONFLICT,已被「{action}」占用,已被「{action}」佔用,Already bound to "{action}"
 KEYBIND_RESET,恢复默认,恢復預設,Restore defaults
 KEYBIND_RESET_DONE,已恢复默认,已恢復預設,Defaults restored
+MAIN_MENU_TITLE,末日安全屋,末日安全屋,SAFEHOUSE
+MAIN_MENU_NEW,新游戏,新遊戲,NEW GAME
+MAIN_MENU_CONTINUE,继续,繼續,CONTINUE
+MAIN_MENU_SETTINGS,设置,設置,SETTINGS
+MAIN_MENU_QUIT,退出,退出,QUIT
+MAIN_MENU_HINT,灰盒验证版（TASK-G M1）,灰盒驗證版（TASK-G M1）,Graybox build (TASK-G M1)
+INV_TITLE,背包,背包,INVENTORY
+INV_USE,使用,使用,USE
+INV_EMPTY,空,空,EMPTY
+INV_CAPACITY,容量,容量,CAP
+INTERACT_PICK,拾取,拾取,Pick up
