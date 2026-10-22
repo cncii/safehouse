@@ -56,6 +56,10 @@ var _fade_layer: CanvasLayer
 var _fade_rect: ColorRect
 var _mount_root: Node = null
 var _mount_queue: Array = []
+# 单深度排队（后到覆盖先到）：切场景途中的请求不再丢弃
+var _pending_id: StringName = &""
+var _pending_payload: Dictionary = {}
+var _pending_fade := DEFAULT_FADE_SEC
 
 func _ready() -> void:
 	# 切场景期间模拟是挂起的；如果本节点跟着树一起暂停，淡入淡出就永远停在中途
@@ -74,10 +78,20 @@ func _build_fade() -> void:
 	_fade_layer.add_child(_fade_rect)
 
 ## ── 对外唯一入口 ──
+## ★ 切场景途中来的请求**排队一次**（后到覆盖先到），不再静默丢弃。
+##
+## 为什么改：直接丢弃会让"点了没反应"变成一类无声 bug——实测（2026-10-22 真链路探针）
+## boot → 主菜单 → 立刻点"新游戏"：主菜单还在淡入（FADING_IN），goto(safehouse)
+## 被判 transition in progress 丢掉，游戏永远停在菜单，且日志只有一行 goto_rejected。
+##
+## 为什么只排一个（不是队列）：连点 N 次要的只是"最后去哪"。真正危险的是
+## **两个场景同时挂载**，而排队保证任一时刻只有一次挂载在跑，所以单槽足够。
 func goto(scene_id: StringName, payload := {}, fade := DEFAULT_FADE_SEC) -> void:
 	if _phase != _Phase.IDLE:
-		# 不做排队：连点两次切场景的后果（两个场景同时挂载）比直接拒绝难查得多
-		Logger.log("scene_router", "goto_rejected", "", int(_phase), "transition in progress")
+		_pending_id = scene_id
+		_pending_payload = payload
+		_pending_fade = fade
+		Logger.log("scene_router", "goto_queued", "", int(_phase), String(scene_id))
 		return
 	var path := String(SCENE_PATHS.get(String(scene_id), ""))
 	if path == "":
@@ -198,6 +212,21 @@ func _on_fade_in_done() -> void:
 	GameLoop.set_suspended(false)
 	transition_finished.emit(_current_id)
 	Logger.log("scene_router", "goto_done", "", String(_current_id))
+	_flush_pending()
+
+
+## 淡入结束后补做排队中的那一次切换（同帧发起，不再等一帧）
+func _flush_pending() -> void:
+	if _pending_id == &"":
+		return
+	var nid := _pending_id
+	var np := _pending_payload
+	var nf := _pending_fade
+	_pending_id = &""
+	_pending_payload = {}
+	_pending_fade = DEFAULT_FADE_SEC
+	Logger.log("scene_router", "goto_flushed", "", String(nid), "from pending slot")
+	goto(nid, np, nf)
 
 func _abort_transition() -> void:
 	_mount_queue.clear()

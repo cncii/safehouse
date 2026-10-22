@@ -101,10 +101,12 @@ func continue_game() -> bool:
 	# 读档同样只能经网关拨钟（不碰 TimeSystem 的私有 _advance_clock_to）。
 	# 恢复的是"当天已过 GH"，所以从当日 05:00 起点加上已过小时。
 	_advance_clock_to_gh(_saved_absolute_gh(t))
-	_sync_gh_mark()
 	State.restore(run.get("player", {}))
 	# 各系统容器段经 Save.apply_persisted 分发（save_system 统一入口）
 	Save.apply_persisted(run)
+	# 同 restart_from_day_start：必须在 apply_persisted 之后（它会再跑一次 time_restore）
+	_time_restore_guard(t)
+	_sync_gh_mark()
 	_init_map_progress()
 	_mount_ui()
 	return true
@@ -255,6 +257,10 @@ func restart_from_day_start() -> bool:
 	_advance_clock_to_gh(_saved_absolute_gh(t))
 	State.restore(run.get("player", {}))
 	Save.apply_persisted(run)
+	# ⚠ 必须放在 apply_persisted **之后**：那个调用会把 "time" 段分发给
+	#   TimeSystem.from_save_time() → time_restore()，又把 _rolled_today 清成 false。
+	#   放在前面等于白设（实测：m4 三条判据时红时绿，就是这几次发的差异）。
+	_time_restore_guard(t)
 	if combat:
 		combat.debug_reset_combat()
 	_sync_gh_mark()
@@ -508,6 +514,20 @@ func _prep_mark_gh() -> float:
 func _loop_gh_int() -> int:
 	var loop := get_node_or_null("/root/GameLoop") as GameLoop
 	return loop.gh_int() if loop else 0
+
+
+## 读档后的跨日幂等锁。
+##
+## ★ 为什么需要：`TimeSystem.time_restore()` 无条件把 `_rolled_today` 置 false。
+##   而当日清晨存档的 gh **正好等于**当日起钟点（05:00 / 06:00），于是恢复后的
+##   第一拍 `_check_day_rollover()` 会立刻满足 `gh >= mark` → **day 又 +1**。
+##   实测：D1 05:00 的存档读回来变成 D2（重开、读档都会跳一天）。
+##
+## ⚠ 这是**跨包写私有静态**，属临时处置：正确做法是 time_system 给一个
+##   public 的 `mark_day_started()`（已在 data/UNDEFINED.md 登记 D-D04）。
+##   逻辑组提供后删掉本函数即可，调用点不用改。
+func _time_restore_guard(_t: Dictionary) -> void:
+	TimeSystem._rolled_today = true
 
 
 ## 存档里的时间字段是**累计 GH**（time_system.to_save_time 写的是 gh_now()，

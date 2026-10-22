@@ -33,6 +33,7 @@ func _ready() -> void:
 	await _test_m3_world()
 	await _test_m4_world()
 	await _test_m5_world()
+	await _test_menu_race()
 	_finish()
 
 # ── 本地化链路 ──
@@ -703,6 +704,46 @@ func _test_m5_world() -> void:
 		not world.victory_screen.visible and not GameLoop._suspended)
 
 	world.free()
+
+
+## ── 回归：主菜单刚出现就点"新游戏"（SceneRouter 还在淡入中）──────────
+## 这条抓的是"点了没反应"：菜单是 FADING_IN 阶段挂上来的，此刻 goto() 会因
+## `_phase != IDLE` 被**静默丢弃**。真链路探针（2026-10-22）实测触发过。
+func _test_menu_race() -> void:
+	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
+	if router == null:
+		router = SceneRouter.new()
+		router.name = "SceneRouter"
+		get_tree().root.add_child(router)
+		await get_tree().process_frame
+	get_tree().current_scene = null
+	# 用默认淡入时长（0.4s）：竞态窗口就在这段淡入里，0s 淡入窗口太窄测不出来
+	router.goto(&"main_menu")
+	# 场景名一出现（淡入还没结束）就立刻"点"——与真链路探针同一时刻
+	for _i in 900:
+		await get_tree().process_frame
+		var cs := get_tree().current_scene
+		if cs != null and String(cs.name).begins_with("MainMenu"):
+			break
+	_t("menu-race: router is still transitioning when we click",
+		router.is_transitioning())
+
+	var menu := MainMenuScreen.new()
+	add_child(menu)
+	menu._on_new_game()
+
+	var reached := false
+	for _i in 900:
+		await get_tree().process_frame
+		if String(router.current_scene_id()) == "safehouse" and not router.is_transitioning():
+			reached = true
+			break
+	_t("menu-race: clicking new game mid-transition still reaches safehouse", reached)
+
+	var world := GameWorld.instance()
+	if world:
+		world.free()
+	await get_tree().process_frame
 
 
 func _goto_scene(router: SceneRouter, id: StringName) -> void:

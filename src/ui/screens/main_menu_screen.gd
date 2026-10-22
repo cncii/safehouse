@@ -63,6 +63,24 @@ func _router() -> SceneRouter:
 	return get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
 
 
+## 等路由器空闲再切场景。
+##
+## ★ 为什么必须等：主菜单自己是"淡入中"挂上来的（SceneRouter 的 FADING_IN 阶段），
+##   玩家/脚本在菜单刚出现的那一帧就点"新游戏"，`goto()` 会因 `_phase != IDLE`
+##   被判 `transition in progress` **直接丢弃**——表现为"点了没反应"。
+##   实测（2026-10-22 真链路探针）：boot→主菜单→立刻点新游戏 → goto_rejected，
+##   场景永远停在主菜单。人慢慢点通常碰不到，脚本/连点必中。
+func _goto_when_idle(target: StringName) -> void:
+	var router := _router()
+	if router == null:
+		return
+	for _i in 300:
+		if not router.is_transitioning():
+			router.goto(target)
+			return
+		await get_tree().process_frame
+
+
 ## 新游戏：清掉旧对局（回主菜单再开的情形）→ 编排新局 → 切 safehouse
 func _on_new_game() -> void:
 	var old := GameWorld.instance()
@@ -77,9 +95,7 @@ func _on_new_game() -> void:
 
 func _start_world(world: GameWorld) -> void:
 	world.start_new_game()
-	var router := _router()
-	if router:
-		router.goto(&"safehouse")
+	await _goto_when_idle(&"safehouse")
 
 
 func _on_continue() -> void:
@@ -94,16 +110,12 @@ func _on_continue() -> void:
 func _continue_world(world: GameWorld) -> void:
 	if not world.continue_game():
 		return
-	var router := _router()
 	var target := String(State.read("player.scene_id"))
-	if router:
-		router.goto(StringName(target) if target != "" else &"safehouse")
+	await _goto_when_idle(StringName(target) if target != "" else &"safehouse")
 
 
 func _on_settings() -> void:
-	var router := _router()
-	if router:
-		router.goto(&"settings")
+	await _goto_when_idle(&"settings")
 
 
 func _on_quit() -> void:

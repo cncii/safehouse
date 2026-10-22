@@ -97,6 +97,7 @@
 | D-D01 | TASK-G 灰盒 M1（`data/balance/graybox_start.json`） | **灰盒脚手架数值整套**：开局物资堆内容（暂 2 食物罐 + 2 净水瓶——仅让"吃喝→四条状态"链路可验，非开局定稿）、玩家移速 120 px/s、交互半径 28 px。设计侧从未给过"新局背包初始物资"（设计基线无此节） | 灰盒手感闸门（TASK-G §7）用这些数跑通主流程；**它们不构成定稿数值**，闸门过了逐键迁正式文件并删本文件 | 创意总监（开局物资清单 + 玩家移速手感） | M1 吃喝链路实机可验；G2 老板亲验 |
 | D-D02 | TASK-G 灰盒 M2（`data/balance/graybox_start.json` 的 `enemy_zombie` 段） | **灰盒丧尸整段参数**：`hp_units 60` / `damage_units 12` / `move_speed_px_per_sec 55` / `attack_cooldown_frames 45` / `attack_range_px 18`。白天地点遭遇的敌人该多强、该几只，`data/enemies/enemies.json` 里只有夜间波次用的条目，**白天环境敌人没有定稿值**（设计基线只写了"遭遇率随宵禁上升"） | M2"能出门一趟"必须有个能打死也能打死我的对手。这几个数决定灰盒手感闸门里"打丧尸别扭不别扭"；定稿前**不许**被当成平衡结论引用 | 战斗组 + 创意总监（白天环境敌人的属性与数量） | G3 老板亲验"出门→搜刮→战斗→回屋"闭环；R5 手感判据在灰盒上只是占位 |
 | D-D03 | TASK-G 灰盒 M3「回屋投料 / 造陷阱」（`src/systems/loop_system.gd` / 建造动作） | **没有可调用的入口**：①产线只有 `tick(delta_gh)` 的"自动出产"，**没有公开的"玩家投料"API**（`_deposit` 是私有）；②建造/陷阱动作的时长 `data/**` 里没有（逻辑组已登记 D-B12），`ContinuousAction` 只给了研发工厂 | M3 的"一天闭环"因此只闭环到**研发 + 跳夜 + 05:00 存档**；投料与造陷阱在灰盒里**无按钮可点**（不是坏了，是接口不存在）。G3（出门→搜刮→回屋→跳夜→存档）不受影响，G7 里"造陷阱"一项缺验证 | 逻辑组（投料 API）+ 创意总监（建造时长） | M3 已交付的三件不依赖本项；投料/陷阱实机验证待接口到位 |
+| D-D04 | `src/systems/time_system.gd` `time_restore()` | 无条件把 `_rolled_today` 置 false，但当日清晨存档的 gh **正好等于**当日起钟点 → 恢复后第一拍 `_check_day_rollover()` 立刻满足 `gh >= mark`，**day 又 +1** | 实测：D1 05:00 的存档读回来变 D2——读档跳一天、死亡重开跳一天，G4「同种子同日」直接失效 | 临时处置：`GameWorld._time_restore_guard()` 跨包写 `TimeSystem._rolled_today = true`（已注明待替换）。**正确修法**：time_system 提供 public `mark_day_started()`，表现组删掉那行即可 | 逻辑组（time_system 的 owner） | 读档/重开不跳天；本项不阻塞闸门（有临时处置兜住） |
 
 ---
 
