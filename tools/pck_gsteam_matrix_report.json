@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-22T10:01:15.8979361+08:00",
+  "generated_at": "2026-10-22T10:15:22.3031006+08:00",
   "godot_version": "4.3.stable.official.77dcf97d8",
   "godotsteam_version": "4.15-gde",
   "layouts": [
@@ -49,6 +49,30 @@
       "error_loading_extension": true,
       "exit_code": 1,
       "outcome": "ERR_notfound",
+      "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
+    },
+    {
+      "layout": "E_addons_plus_cwd_api",
+      "desc": "lib 在 addons/，api 放 --path 目录根（CWD）",
+      "godotsteam_loaded": false,
+      "godotsteam_version": "",
+      "error_126_dependency_not_found": true,
+      "error_library_not_found": false,
+      "error_loading_extension": true,
+      "exit_code": 1,
+      "outcome": "ERR126_dependency",
+      "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
+    },
+    {
+      "layout": "F_addons_plus_path_env",
+      "desc": "lib 在 addons/，api 目录加入 PATH 环境变量",
+      "godotsteam_loaded": false,
+      "godotsteam_version": "",
+      "error_126_dependency_not_found": true,
+      "error_library_not_found": false,
+      "error_loading_extension": true,
+      "exit_code": 1,
+      "outcome": "ERR126_dependency",
       "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
     }
   ],

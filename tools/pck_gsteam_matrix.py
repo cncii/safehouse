@@ -60,6 +60,12 @@ LAYOUTS = [
     {"id": "D_flat_exe_dir",
      "desc": "lib 与 api 都平铺在 exe 同级目录（不含 addons/ 层级）",
      "lib": "flat", "api": "flat"},
+    {"id": "E_addons_plus_cwd_api",
+     "desc": "lib 在 addons/，api 放 --path 目录根（CWD）",
+     "lib": "addons", "api": "cwd"},
+    {"id": "F_addons_plus_path_env",
+     "desc": "lib 在 addons/，api 目录加入 PATH 环境变量",
+     "lib": "addons", "api": "pathenv"},
 ]
 
 
@@ -99,15 +105,27 @@ def run_layout(layout, pck_path, workdir):
         os.makedirs(t, exist_ok=True)
         shutil.copy2(api_src, os.path.join(t, API_DLL))
         shutil.copy2(api_src, os.path.join(d, API_DLL))
+    elif layout["api"] == "cwd":
+        # 依赖只放 --path 目录根（CWD），不放 addons/ 里
+        shutil.copy2(api_src, os.path.join(d, API_DLL))
+    elif layout["api"] == "pathenv":
+        # 依赖放 addons/ 里 + 额外把该目录加进 PATH
+        t = os.path.join(d, "addons", "godotsteam", "win64")
+        os.makedirs(t, exist_ok=True)
+        shutil.copy2(api_src, os.path.join(t, API_DLL))
+        env_extra = t
 
     probe = os.path.join(d, "_probe.gd")
     with open(probe, "w", encoding="utf-8") as f:
         f.write(PROBE_GD)
 
+    env = dict(os.environ)
+    if layout.get("api") == "pathenv":
+        env["PATH"] = env_extra + os.pathsep + env.get("PATH", "")
     r = subprocess.run([GODOT, "--headless", "--path", d, "--main-pack", local_pck,
                         "-s", probe],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       timeout=300)
+                       timeout=300, env=env)
     out = (r.stdout or "") + (r.stderr or "")
 
     loaded = "PROBE class_exists=true" in out

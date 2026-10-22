@@ -60,14 +60,23 @@ ctypes.WinDLL("libgodotsteam.windows.template_debug.x86_64.dll")
 除非用 `LOAD_WITH_ALTERED_SEARCH_PATH` 或 `AddDllDirectory`。
 Godot 的 `open_dynamic_library`（Windows）**两者都没用** → 依赖必须放 **exe 目录**。
 
-**实测过的四种摆法**（`--main-pack` + 真实 PCK）：
+**实测过的六种摆法**（`--main-pack` + 真实 PCK，`tools/pck_gsteam_matrix.py` 自动跑）：
 
 | 摆法 | 结果 |
 |---|---|
-| A. dll 在 PCK 内 | ❌ `not found`（PCK 内不可加载） |
-| B. dll 在 `addons/` 路径下（PCK 旁），依赖同目录 | ❌ `Error 126`（依赖搜索路径） |
-| C. dll 在 `addons/`，依赖在 exe 目录 | ❌ `Error 126`（Godot exe ≠ 目标 exe 目录时的相对路径问题） |
-| D. 两个 dll 都在 exe 目录（扁平） | ❌ `not found`（路径不匹配 `res://addons/godotsteam/win64/...`） |
+| A. dll 只在 PCK 内（`embed_pck` 默认） | ❌ `not found`（PCK 内不可加载） |
+| B. dll 在 `addons/godotsteam/win64/`（PCK 旁），依赖同目录 | ❌ `Error 126` |
+| C. dll 在 `addons/`，依赖额外放 exe 同级目录 | ❌ `Error 126` |
+| D. 两个 dll 都平铺在 exe 同级目录 | ❌ `not found`（路径不匹配 `res://addons/godotsteam/win64/...`） |
+| E. dll 在 `addons/`，依赖只放 `--path` 目录根（CWD） | ❌ `Error 126` |
+| F. dll 在 `addons/`，依赖目录加入 `PATH` 环境变量 | ❌ `Error 126` |
+
+**收敛结论：这不是"摆法没找对"，是 Godot 的加载机制限制。**
+六种摆法里，只要 dll 能被找到（不是 `not found`），就一定是 `Error 126`——
+因为 Godot 用 `LoadLibraryW` 加载 dll 时**不设** `LOAD_WITH_ALTERED_SEARCH_PATH`、
+**不调** `AddDllDirectory`，而 Windows 对"dll 的依赖"的搜索**不包含该 dll 自身所在目录**。
+（Python 直接调 Windows 加载器可复现：相对路径 `LoadLibrary` 失败、加
+`os.add_dll_directory` 成功 → 证明就是依赖搜索路径，与 Godot 无关。）
 
 ---
 
