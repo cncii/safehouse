@@ -56,6 +56,7 @@ const InventoryTests = preload("res://tests/test_inventory.gd")
 const TechRuntimeTests = preload("res://tests/test_tech_runtime.gd")
 const MapLootTests = preload("res://tests/test_map_loot.gd")
 const TimePersistTests = preload("res://tests/test_time_persist.gd")
+const TaskGFlowTests = preload("res://tests/test_task_g_flow.gd")
 const SaveSeedTests = preload("res://tests/test_save_seed.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
@@ -217,6 +218,8 @@ func _ready() -> void:
 	# MapLootTests.run(self)
 	# ── 时间存档一致性（C-01 的直接判据，M7/M8/P7 的时间侧）──
 	TimePersistTests.run(self)
+	# ── TASK-G 灰盒主流程：进入地点 + 搜刮（M2 里程碑）──
+	TaskGFlowTests.run(self)
 	# ── seed 存档往返精度（P0 回归门禁，2026-10-22 修复后转常规）──
 	SaveSeedTests.run(self)
 

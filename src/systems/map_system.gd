@@ -53,6 +53,123 @@ func _ready() -> void:
 
 
 # ════════════════════════════════════════════════════════════════
+#  进入地点 / 搜刮（TASK-G 灰盒主流程接线）
+# ════════════════════════════════════════════════════════════════
+#
+## 职责切分（2026-10-22 老板拍板）：**进地点与拾取分开**。
+##   enter_node()  —— 只回答"这个地点长什么样、有什么可搜"，**不碰背包**。
+##   loot_take()   —— 拾取单个点位，把掉落交给调用方（由调用方转 InventorySystem.add()）。
+##
+## 为什么分开：背包归 InventorySystem 管，地图系统不该代管（架构单一职责）；
+##   而且地图系统若要代管，就得横向持有 InventorySystem 引用——
+##   **包 B 白名单明令禁止**，得用注入回调绕，没必要把接口搞复杂。
+#
+## 表现组（game_world.gd:113）此前是"借道 from_save"占位等这个 API，落地后换正式调用。
+
+## 进入一个地点（TASK-G §3 逻辑组配合项①）
+## 返回 {ok, reason, node_id, day, theme_id, rooms, loot_points, available_points, is_refilled}
+##   available_points —— 该地点当前**还能搜**的点位（已搜过的剔除，D4 起回填的会重新出现）
+##   is_refilled      —— 今天是否命中回填（灰盒提示用）
+##
+## 不做：不扣时间（travel_cost 的扣时由表现组/GameLoop 侧决定何时结算）、
+##       不写背包、不推进 RNG 消费顺序（掉落用位置无关 hash，见文件头纯度三条）
+func enter_node(node_id: StringName, day: int) -> Dictionary:
+	_ensure_loaded()
+	var nid := str(node_id)
+	var out := {"ok": false, "node_id": nid, "day": day}
+	var node: Dictionary = _nodes.get(nid, {})
+	if node.is_empty():
+		out["reason"] = "unknown_node"
+		return out
+	if nid == "safehouse":
+		# 家：没有可搜刮物，但进门要成功（灰盒回屋流程会调它）
+		out["ok"] = true
+		out["reason"] = "home"
+		out["theme_id"] = str(node.get("theme_id", ""))
+		out["rooms"] = []
+		out["loot_points"] = []
+		out["available_points"] = []
+		out["is_refilled"] = false
+		return out
+
+	var layout := generate_layout(node_id, day)
+	if layout.is_empty():
+		out["reason"] = "layout_unavailable"
+		return out
+
+	# 标记到访 + 写当前位置（map.current_node 是契约路径，writer 含 map_system）
+	mark_visited(node_id, day)
+	var cs := _Store.ChangeSet.new(&"map_system", "enter node %s" % nid)
+	cs.setv("map.current_node", nid)
+	State.apply(cs)
+
+	# 可搜点位 = 全部点位 − 已搜标记（D4 起回填会清掉部分标记）
+	var available: Array = []
+	for p: Variant in layout.get("loot_points", []):
+		var pid := str((p as Dictionary).get("id", ""))
+		if pid == "":
+			continue
+		if not is_looted(node_id, pid):
+			available.append(pid)
+
+	out["ok"] = true
+	out["reason"] = "ok"
+	out["theme_id"] = str(layout.get("theme_id", ""))
+	out["rooms"] = layout.get("rooms", [])
+	out["loot_points"] = layout.get("loot_points", [])
+	out["available_points"] = available
+	out["is_refilled"] = is_refilled(node_id, day)
+	return out
+
+
+## 拾取一个掉落点（TASK-G §3 逻辑组配合项②）
+## 返回 {ok, reason, added: [{item_id, count}], overflow_count, remaining_slots}
+##
+## ⚠ 本函数**只算掉落、不碰背包**——调用方（表现组/GameWorld）把 `added` 转给
+##   InventorySystem.add()，背包容量夹紧与溢出丢弃由 add() 自己的语义负责。
+##   地图系统不代管背包（架构单一职责 + 包 B 白名单禁止横向持有引用）。
+##
+## 搜过的点再取一次 → added 空（搜过即打空，设计基线 2.6）。
+func loot_take(loc_id: StringName, point_id: StringName, day: int) -> Dictionary:
+	_ensure_loaded()
+	var out := {"ok": false, "reason": "", "added": [], "overflow_count": 0,
+		"remaining_slots": 0, "item_id": "", "count": 0}
+	var lid := str(loc_id)
+	var pid := str(point_id)
+	if is_looted(loc_id, point_id):
+		out["reason"] = "already_looted"
+		return out
+	var drops := loot_point(loc_id, point_id, day)
+	# 标记已搜——即使这箱是空的也标记（搜过就是搜过，否则玩家能反复"探箱"刷随机）
+	mark_looted(loc_id, point_id)
+	if drops.is_empty():
+		out["reason"] = "empty_point"
+		return out
+	out["ok"] = true
+	out["reason"] = "ok"
+	out["added"] = drops
+	for e: Variant in drops:
+		if e is Dictionary:
+			out["item_id"] = str((e as Dictionary).get("item_id", ""))
+			out["count"] = int((e as Dictionary).get("count", 0))
+			break
+	return out
+
+
+## 该地点今天还能搜几个点（UI 提示用；不产生副作用）
+func available_loot_count(node_id: StringName, day: int) -> int:
+	var layout := generate_layout(node_id, day)
+	if layout.is_empty():
+		return 0
+	var n := 0
+	for p: Variant in layout.get("loot_points", []):
+		var pid := str((p as Dictionary).get("id", ""))
+		if pid != "" and not is_looted(node_id, StringName(pid)):
+			n += 1
+	return n
+
+
+# ════════════════════════════════════════════════════════════════
 #  距离（总览节点图）
 # ════════════════════════════════════════════════════════════════
 
@@ -383,6 +500,116 @@ func verify_determinism(reopen_count: int = 20) -> Dictionary:
 		"REFILL_pending_count": _pending_refills.size(),
 		"REFILL_pass": _refill_roundtrip_ok(),
 	}
+
+
+# ════════════════════════════════════════════════════════════════
+#  TASK-G 进入地点 / 搜刮判据
+# ════════════════════════════════════════════════════════════════
+#
+## 判据对着 DoD 的哪几条：TASK-G §3 逻辑组配合项①②（进地点对接 + 拾取→背包）、
+##   G3（一天循环：出门→搜刮→回屋，无卡死）与 G4（同种子同日内容一致）的前置。
+##
+## ★ 为什么期望值独立写死（本项目已踩三次恒真式）：
+##   「12 个点位」这类数字**从 layout 里现取**就变成"自己算自己比"——
+##   布局生成器坏了，点位数跟着变，判据照样绿。
+##   所以点位总数写死 P16_EXPECTED_POINTS=12（超市 commercial 主题的定稿值），
+##   掉落内容不写死（那是设计值，见 D-006），改用**非空率**与**重复拾取必拒**来判。
+
+## 超市（灰盒唯一地点）的定稿点位数——独立基准，不取自被测代码
+const G_EXPECTED_SUPERMARKET_POINTS := 12
+
+## TASK-G 进入地点 + 搜刮判据
+func verify_enter_and_loot(day: int = 8) -> Dictionary:
+	var out := {}
+	# 从干净状态开始（判据不能受前面用例的搜刮标记影响）
+	_locations = {}
+
+	# ── ① enter_node 成功且布局齐全 ──
+	var e := enter_node(&"supermarket", day)
+	out["G_enter_ok"] = bool(e.get("ok", false))
+	out["G_enter_reason"] = str(e.get("reason", ""))
+	out["G_enter_theme"] = str(e.get("theme_id", ""))
+	out["G_enter_rooms"] = (e.get("rooms", []) as Array).size()
+	out["G_enter_points"] = (e.get("loot_points", []) as Array).size()
+	out["G_available_points"] = (e.get("available_points", []) as Array).size()
+	# 点位数必须是定稿值 12（不取自 layout——否则布局坏了判据跟着绿）
+	out["G_points_expected"] = G_EXPECTED_SUPERMARKET_POINTS
+	out["G_points_ok"] = out["G_enter_points"] == G_EXPECTED_SUPERMARKET_POINTS
+	# 防空转：可用点位必须非空，否则下面那些判据全是空转
+	out["G_available_nonempty"] = out["G_available_points"] > 0
+
+	# ── ② enter_node 写了 map.current_node（契约路径，writer=map_system）──
+	out["G_current_node"] = str(State.read("map.current_node"))
+	out["G_current_node_ok"] = out["G_current_node"] == "supermarket"
+
+	# ── ③ 拾取：非空率 + 搜过即打空 ──
+	# ⚠ 先把 id 列表留一份局部变量再用——out["G_available_points"] 存的是**个数**（int），
+	#   直接拿它当数组迭代会 "Invalid cast: could not convert value to 'Array'"（已踩）。
+	var avail_ids: Array = (e.get("available_points", []) as Array).duplicate()
+	var got := 0
+	var empty_points := 0
+	var first_id := ""
+	for pid: Variant in avail_ids:
+		var r := loot_take(&"supermarket", StringName(str(pid)), day)
+		if bool(r.get("ok", false)):
+			got += 1
+			if first_id == "":
+				first_id = str(pid)
+		else:
+			empty_points += 1
+	out["G_loot_nonempty_points"] = got
+	out["G_loot_empty_points"] = empty_points
+	# ⚠ 防空转：全空箱 = 掉落链路断了（判据会因"都拒了"而假绿）
+	out["G_loot_nonempty_ok"] = got > 0
+
+	# ── ④ 搜过即打空（设计基线 2.6：搜过就是搜过，防反复探箱刷随机）──
+	var repeat_ok := false
+	if first_id != "":
+		var again := loot_take(&"supermarket", StringName(first_id), day)
+		repeat_ok = (not bool(again.get("ok", true))) \
+			and str(again.get("reason", "")) == "already_looted"
+	out["G_repeat_rejected"] = repeat_ok
+
+	# ── ⑤ 已搜的点不再出现在 available_points 里 ──
+	var avail2: Array = (enter_node(&"supermarket", day).get("available_points", []) as Array)
+	out["G_available_after_sweep"] = avail2.size()
+	# 全搜完后可用数必须为 0（且总点数仍是 12——布局本身没变）
+	out["G_swept_to_zero"] = avail2.size() == 0
+	out["G_layout_stable"] = (enter_node(&"supermarket", day)
+		.get("loot_points", []) as Array).size() == G_EXPECTED_SUPERMARKET_POINTS
+
+	# ── ⑥ 边界：安全屋可进但无搜刮物；未知节点被拒 ──
+	var home := enter_node(&"safehouse", day)
+	out["G_home_ok"] = bool(home.get("ok", false)) \
+		and (home.get("available_points", []) as Array).is_empty()
+	var bad := enter_node(&"no_such_node", day)
+	out["G_unknown_rejected"] = (not bool(bad.get("ok", true))) \
+		and str(bad.get("reason", "")) == "unknown_node"
+
+	# ── ⑦ 同种子同日内容一致（G4 的前置：同一天重进，布局逐字节相同）──
+	_locations = {}
+	var s1 := enter_node(&"supermarket", day)
+	var ids1: Array = (s1.get("available_points", []) as Array).duplicate()
+	var sig1 := ""
+	for pid: Variant in ids1:
+		sig1 += str(pid) + ":" + str(loot_point(&"supermarket", StringName(str(pid)), day)) + "|"
+	_locations = {}
+	var s2 := enter_node(&"supermarket", day)
+	var sig2 := ""
+	for pid: Variant in (s2.get("available_points", []) as Array):
+		sig2 += str(pid) + ":" + str(loot_point(&"supermarket", StringName(str(pid)), day)) + "|"
+	out["G_signature_len"] = sig1.length()
+	out["G_same_seed_same_content"] = (sig1 == sig2) and sig1.length() > 0
+
+	# 复原
+	_locations = {}
+	out["G_all_pass"] = bool(out["G_enter_ok"]) and bool(out["G_points_ok"]) \
+		and bool(out["G_available_nonempty"]) and bool(out["G_current_node_ok"]) \
+		and bool(out["G_loot_nonempty_ok"]) and bool(out["G_repeat_rejected"]) \
+		and bool(out["G_swept_to_zero"]) and bool(out["G_layout_stable"]) \
+		and bool(out["G_home_ok"]) and bool(out["G_unknown_rejected"]) \
+		and bool(out["G_same_seed_same_content"])
+	return out
 
 
 # ════════════════════════════════════════════════════════════════
