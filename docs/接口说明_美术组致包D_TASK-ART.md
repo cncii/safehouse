@@ -13,6 +13,8 @@
 |---|---|---|
 | 简体中文字体 | `res://assets/fonts/font_fusion_pixel_12px_zh_hans.ttf` | Fusion Pixel 12px，OFL，37415 码位 |
 | 繁体中文字体 | `res://assets/fonts/font_fusion_pixel_12px_zh_tw.ttf` | 同上，地区字形不同 |
+| **状态条 2 件** | `res://assets/sprites/ui/ui_bar_frame.png` / `ui_bar_fill.png` | 接法见 §7（**同原点裁切，不拉伸**） |
+| **按钮 / 面板 / 物品格 10 件** | `res://assets/sprites/ui/ui_btn_base_*` / `ui_panel_*` / `ui_slot_item_*` | 接法见 §8（九宫 8/8/8/8 与 4/4/4/4） |
 | 风格与 UI 件规格 | `docs/style_contract.md` §4 | 尺寸表、九宫格、五态矩阵、命名 |
 | 授权凭证 | `assets/_licenses/`（4 份） | Steam 上架查证，别动 |
 
@@ -222,16 +224,105 @@ clip.add_child(fill)
 但**你之前通过的 S5（27 组合越界 0 处）是行高 14 下跑的，结论不再适用，必须重跑**，
 结果给我，我记进 `style_contract` §8.2。
 
-视觉方向确认看 `build/art_proof/ui_bar_preview.png`（含 1× 真实尺寸，台面亮/暗 A/B 两版）。
+视觉方向确认看 `build/art_proof/ui_bar_preview.png`（含 1× 真实尺寸）。
+~~台面亮/暗 A/B 两版~~ 已作废：四边统一 2px 边框后只剩一档台面色，没有可选项。
 
 ---
 
-## 8. 需要你回一句的三件事
+## 8. 本批 10 件：按钮 / 面板 / 物品格（2026-10-22 新增）
+
+### 8.1 清单
+
+| 件 | 路径（`res://assets/sprites/ui/`） | 尺寸 | 九宫 L/T/R/B | 用途 |
+|---|---|---|---|---|
+| 按钮 常态 | `ui_btn_base_normal.png` | 96×32 | 8/8/8/8 | `normal` style |
+| 按钮 悬停 | `ui_btn_base_hover.png` | 96×32 | 8/8/8/8 | `hover` style |
+| 按钮 按下 | `ui_btn_base_pressed.png` | 96×32 | 8/8/8/8 | `pressed` style |
+| 按钮 禁用 | `ui_btn_base_disabled.png` | 96×32 | 8/8/8/8 | `disabled` style |
+| 按钮 选中 | `ui_btn_base_selected.png` | 96×32 | 8/8/8/8 | 当前项（见 §8.2） |
+| 对话框底板 | `ui_panel_dialog.png` | 192×112 | 8/8/8/8 | 事件 / 确认框 |
+| 小面板底板 | `ui_panel_small.png` | 96×64 | 8/8/8/8 | 链状态单卡 |
+| 物品格 常态 | `ui_slot_item_normal.png` | 32×32 | 4/4/4/4 | 背包格 |
+| 物品格 悬停 | `ui_slot_item_hover.png` | 32×32 | 4/4/4/4 | 背包格 |
+| 物品格 选中 | `ui_slot_item_selected.png` | 32×32 | 4/4/4/4 | 背包格 |
+
+全部索引色 PNG-8，单件 3 色，合计 8.9 KB。**图里没有任何文字**，文字仍由你的 `Label` + `Localize.text()` 渲染。
+
+### 8.2 按钮五态怎么挂（Godot 没有 `selected` 槽，这条最容易接错）
+
+`Button` 的 theme style 只有 `normal` / `hover` / `pressed` / `disabled` / `focus` 五个。
+其中 **`pressed` 是"按住期间"，不是"选中"** —— 语义完全不同，别混。
+
+| 素材 | 挂到 |
+|---|---|
+| `ui_btn_base_normal` | `theme_override_styles/normal` |
+| `ui_btn_base_hover` | `theme_override_styles/hover` |
+| `ui_btn_base_pressed` | `theme_override_styles/pressed` |
+| `ui_btn_base_disabled` | `theme_override_styles/disabled`（`Button.disabled = true` 自动生效） |
+| `ui_btn_base_selected` | **`theme_override_styles/focus`**，或手动换 `normal` |
+
+> `selected` 用在"列表 / 菜单当前项"。用 `focus` 的好处是键盘导航自动跟随，
+> 坏处是"焦点"和"选中"两种语义会合成一个黄框。**若你的界面里这两者不是一回事，就手动换 `normal`，别用 `focus`。**
+
+### 8.3 一行代码把素材变成九宫 StyleBox
+
+```gdscript
+static func nine(path: String, m: int) -> StyleBoxTexture:
+	var sb := StyleBoxTexture.new()
+	sb.texture = load(path)
+	sb.texture_margin_left = m
+	sb.texture_margin_top = m
+	sb.texture_margin_right = m
+	sb.texture_margin_bottom = m
+	# 默认就是 STRETCH，别改成 TILE：
+	# 边条沿拉伸方向是纯色，STRETCH 不会糊；TILE 在非整数倍时会切掉半个像素
+	sb.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_STRETCH
+	sb.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_STRETCH
+	return sb
+```
+
+九宫值从 `style_contract` §4.2 的**具名值表**读（按钮/面板 8，物品格 4），**不要从图里猜**。
+
+### 8.4 三种控件形态对应哪种接法
+
+| 场景 | 用什么 | 为什么 |
+|---|---|---|
+| 按钮 | `Button` + 5 个 `theme_override_styles/*` + `nine()` | 五态由引擎自动切，不用自己写状态机 |
+| 面板 | 需要被内容撑开 → `PanelContainer` + `theme_override_styles/panel`；尺寸固定 → `NinePatchRect` | `PanelContainer` 多一层 layout，但能跟着内容长；`NinePatchRect` 更省，但尺寸要自己给 |
+| 物品格 | `TextureButton` 三张图直挂；或 `Panel` + `StyleBoxTexture`（九宫填 4） | 32×32 是固定尺寸，九宫是"只在你哪天拉大时才生效"的伪参数（同 §7.4） |
+
+### 8.5 三条容易踩的
+
+1. **`content_margin` 要自己给。** 素材只有边框，不含内边距。96×32 的按钮里放 12px 字，建议
+   `content_margin_top/bottom = 10`、`left/right = 8`，否则文字会贴死在边框上。
+2. **`pressed` 与 `hover` 的色集合完全相同**（都是 `#222034`/`#595652`/`#847e87`），
+   只有斜面向量反转。**别写"色值去重"式的素材校验**，会把正确实现误判成重复素材。
+3. **`custom_minimum_size` 不能小于素材尺寸。** `StyleBoxTexture` 不阻止压缩，
+   压到非整数尺寸就会出现半像素、边缘发虚。按钮至少 96×32，物品格至少 32×32。
+
+### 8.6 预览与反查
+
+- 看效果：`build/art_proof/ui_kit_preview.png`（五态 3×/1×、九宫拉伸好/坏对比、面板、10 格背包行）
+- 接完反查素材有没有被导入管线改坏：`Godot --headless -s build/art_proof/check_ui_kit.gd`（50 条断言）
+
+### 8.7 还没做的两件事（别等，也别自己补）
+
+- **图集**：现在 10 件分开加载（多约 10 次 draw call，对 200 MB 预算无压力）。
+  等几何定型后我统一打包 `ui_atlas_panels.png` / `ui_atlas_buttons.png` 并给坐标表。
+  **你不要自己拼图集** —— 拼了就出现两套坐标，迟早对不上。
+- **按钮另 2 个尺寸**：`style_contract` §4.6 写了"五态 × 3 尺寸"，但 §4.1 只定义了 96×32 一个。
+  **如果你需要小按钮，现在把尺寸告诉我**（必须 16 的倍数），别先拿 96×32 缩 —— 非整数缩放会把像素拉糊。
+
+---
+
+## 9. 需要你回一句的四件事
 
 1. **接字体的时间点** —— 你什么时候接？我好在之后跑一次全量缺字复检（字体渲染变了，某些字的包围盒可能影响你的布局）。
 2. **S5 重跑的结论** —— 你重跑 27 组合后把结果告诉我，我记进 `style_contract.md` §8.2，避免下一个人再问一遍。
 3. **参考实现你收不收** —— `build/art_proof/pixel_bar_ref.gd` 是"裁切而非拉伸"的可运行样板。
    你愿意移植就移植（记得加 `class_name PixelBar`）；你有更好的写法也直接说，
    但**别用 `ProgressBar` + `StyleBoxTexture` 的 fill**——那是拉伸，像素会糊（见 §7.2）。
+4. **要不要第二种按钮尺寸** —— 见 §8.7。只要你回一个尺寸（16 的倍数），我按 §4 的同一套规则出五态；
+   不回就按"只有 96×32"收工，后续要加属于新需求。
 
 有异议或发现我这条说明跟你的实现冲突，直接在 `docs/` 下回一份说明，或让老板转达。
