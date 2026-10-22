@@ -345,6 +345,41 @@ powershell -ExecutionPolicy Bypass -File tools\s9_net_probe.ps1
 补上 binding 后 GodotSteam 才会真正接管，届时 `1012(3b)` 判据需按后端类型分支断言。
 交接细节见 `docs/接口说明_战斗组致包E_GodotSteam接入_TASK-CE.md`。
 
+### 8.4b `embed_pck` 导出包路径（2026-10-22 新增）—— 判据成立，但**发现一个必须处理的加载问题**
+
+用 `--export-pack` 产出**真实 PCK**（4.9 MB）再 `--main-pack` 加载，实测：
+
+| 项 | 结果 |
+|---|---|
+| 架构 1075 条判据 | ✅ **成立**——PCK 场景下 GodotSteam 加载失败，但**降级链 21/21 全绿**，游戏不崩 |
+| 但 | ⚠ `embed_pck=true` 时 **GodotSteam 永远加载失败** → 成就/Rich Presence 全不可用 |
+
+**根因**（用 Python 直接调 Windows 加载器复现，与 Godot 无关）：
+1. GDExtension 原生库**不能从 PCK 内加载**（Godot 只在 `--path` 目录 / exe 同目录 / exe 的 `../lib` 找，
+   见 Godot 官方 issue #87761）
+2. 把 dll 放到 PCK 旁后错误从 `not found` 变成 **`Error 126: 找不到指定的模块`**——
+   Windows 的 `LoadLibraryW` 加载 dll 时，其依赖按 `exe 目录 → 系统目录 → PATH` 搜索，
+   **不含该 dll 自己所在目录**（不用 `LOAD_WITH_ALTERED_SEARCH_PATH` 也不用 `AddDllDirectory`）
+
+**四种摆法实测矩阵**（`tools/pck_gsteam_matrix.py` → `tools/pck_gsteam_matrix_report.json`）：
+
+| 摆法 | 结果 |
+|---|---|
+| A. dll 只在 PCK 内（embed_pck 默认） | ❌ `not found` |
+| B. dll 在 `addons/godotsteam/win64/`（PCK 旁），依赖同目录 | ❌ `Error 126` |
+| C. dll 在 `addons/`，依赖额外放 exe 同级 | ❌ `Error 126` |
+| D. 两个 dll 都平铺在 exe 同级 | ❌ `not found`（路径不匹配 `res://addons/...`） |
+
+**给包 E 的三个解法**（详见 `docs/接口说明_战斗组致包E_GodotSteam导出包加载问题_TASK-CE.md`）：
+1. **推荐**：放弃 `embed_pck=true` 改外置 PCK（架构 §6.2 的目录树里本来就有 `steam_api64.dll`，
+   单文件本来就不可能）——**需架构侧改 §6.2 那一行**
+2. 保留 embed_pck + 写 `EditorExportPlugin` 把 dll 导出到 exe 旁
+3. 改第三方 `.gdextension` 的路径（升级要重打补丁，**不推荐**）
+
+**新增工具**：`tools/s9_export_probe.ps1`（导出包出站检测，模板装好后可直接跑）
+· `tools/pck_gsteam_matrix.py`（摆法矩阵，本轮已跑）· `export_presets.cfg`（两个预设：
+`embed_pck=true` 架构要求 + `embed_pck=false` 对照组）
+
 ### 8.5 其余未覆盖项
 
 | 判据 | 为什么测不了 | 需要什么 |

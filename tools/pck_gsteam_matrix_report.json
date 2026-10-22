@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-10-22T10:01:15.8979361+08:00",
+  "godot_version": "4.3.stable.official.77dcf97d8",
+  "godotsteam_version": "4.15-gde",
+  "layouts": [
+    {
+      "layout": "A_pck_only",
+      "desc": "dll 只在 PCK 内（embed_pck 的默认结果）",
+      "godotsteam_loaded": false,
+      "godotsteam_version": "",
+      "error_126_dependency_not_found": false,
+      "error_library_not_found": true,
+      "error_loading_extension": true,
+      "exit_code": 1,
+      "outcome": "ERR_notfound",
+      "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
+    },
+    {
+      "layout": "B_addons_beside_pck",
+      "desc": "lib 在 addons/godotsteam/win64/（PCK 旁），api 同目录",
+      "godotsteam_loaded": false,
+      "godotsteam_version": "",
+      "error_126_dependency_not_found": true,
+      "error_library_not_found": false,
+      "error_loading_extension": true,
+      "exit_code": 1,
+      "outcome": "ERR126_dependency",
+      "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
+    },
+    {
+      "layout": "C_addons_plus_exe_dir",
+      "desc": "lib 在 addons/godotsteam/win64/，api 额外放 exe 同级目录",
+      "godotsteam_loaded": false,
+      "godotsteam_version": "",
+      "error_126_dependency_not_found": true,
+      "error_library_not_found": false,
+      "error_loading_extension": true,
+      "exit_code": 1,
+      "outcome": "ERR126_dependency",
+      "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
+    },
+    {
+      "layout": "D_flat_exe_dir",
+      "desc": "lib 与 api 都平铺在 exe 同级目录（不含 addons/ 层级）",
+      "godotsteam_loaded": false,
+      "godotsteam_version": "",
+      "error_126_dependency_not_found": false,
+      "error_library_not_found": true,
+      "error_loading_extension": true,
+      "exit_code": 1,
+      "outcome": "ERR_notfound",
+      "output_head": "Godot Engine v4.3.stable.official.77dcf97d8 - https://godotengine.org\n"
+    }
+  ],
+  "conclusion": "GodotSteam's native libs cannot be loaded from inside a PCK (Godot only looks in --path dir / exe dir / exe ../lib). With embed_pck=true the extension always fails to load -> the NullSteam degradation path takes over (verified: 21/21 assertions green, game does not crash). To keep Steam features working in an exported build, the DLLs must sit next to the exported exe (see the 3 candidate fixes in the handover doc)."
+}
