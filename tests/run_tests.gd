@@ -57,6 +57,7 @@ const TechRuntimeTests = preload("res://tests/test_tech_runtime.gd")
 const MapLootTests = preload("res://tests/test_map_loot.gd")
 const TimePersistTests = preload("res://tests/test_time_persist.gd")
 const TaskGFlowTests = preload("res://tests/test_task_g_flow.gd")
+const TaskGStageTests = preload("res://tests/test_task_g_stage.gd")
 const SaveSeedTests = preload("res://tests/test_save_seed.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
@@ -220,6 +221,8 @@ func _ready() -> void:
 	TimePersistTests.run(self)
 	# ── TASK-G 灰盒主流程：进入地点 + 搜刮（M2 里程碑）──
 	TaskGFlowTests.run(self)
+	# ── TASK-G 拨钟 / 过渡夜 / 阶段A→B（M3/M5 里程碑）──
+	TaskGStageTests.run(self)
 	# ── seed 存档往返精度（P0 回归门禁，2026-10-22 修复后转常规）──
 	SaveSeedTests.run(self)
 
@@ -820,6 +823,18 @@ func _run_vitals_asserts() -> void:
 	_t("BLEED-unknown buff id rejected on load",
 		bool(bleed.get("BLEED_dirty_ok", false)))
 	vs_b.free()
+
+## TASK-G 测试用拨钟：把 GameLoop.elapsed_ticks 拨到 target_gh 对应帧。
+##
+## 这是**测试替身**，模拟 core 给 GameLoop 加 `advance_to(gh)` 之后的一行接线。
+## 生产代码里 TimeSystem 不直接写 core 状态（C27 + 协作纪律），走 clock_advance_gate 注入。
+func _advance_clock_for_test(target_gh: float) -> bool:
+	var loop := get_node_or_null("/root/GameLoop")
+	if loop == null:
+		return false
+	loop.elapsed_ticks = int(round(target_gh * float(GameLoop.FRAMES_PER_GH)))
+	return true
+
 
 func _load_json_dict(path: String) -> Dictionary:
 	var f := FileAccess.open(path, FileAccess.READ)

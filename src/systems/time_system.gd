@@ -85,8 +85,33 @@ static var _curfew_gh := 20.0
 static var _stage_b_dawn_gh := 6.0
 static var _stage_b_day_gh := 12.0
 var _night_overtime_gh := 9.0
-var _transition_night_sec := 120.0
-var _transition_night_playable := false
+static var _transition_night_sec := 120.0
+static var _transition_night_playable := false
+
+# ── 从 time.json 载入的运行值（数值唯一来源，不硬编码）──
+## 默认值与 data/balance/time.json 的当前定稿一致，但**载入后一律以文件为准**。
+static var _tick_hz := 60            # tick_hz_count
+static var _days_stage_a := 7        # days_stage_a_count（阶段A 天数 = D7 之后进过渡夜）
+
+# ── 过渡夜状态（TASK-G M5：D7 20:00 → D8 06:00，架构 §11.1）──
+## 架构原文三句，逐句落到实现：
+##   ①「D7 20:00 → D8 06:00 是过渡夜：不计夜次、无波次、只播氛围音」
+##      → _transition_settle_gh = 10.0（20:00→06:00），night_index 不动
+##   ②「过渡夜照常衰减 10 GH（不暂停衰减）」（§13.1 第 16 条，防"故意不清状态白嫖"）
+##      → 进过渡夜时广播要结算的 GH 数，各系统自己按这数结算
+##   ③「SKIP 改为 SCRIPTED（整段跳、无空闲等待）」（§13.5）+「不得进入无法操作但持续受损」
+##      （§13.3 硬不变量）→ **不让玩家坐着看 12 分钟**，一次性结完
+##     ⚠ 这就是 `transition_night_duration_sec=120` 的定位：**氛围过场时长**，
+##       不是"时间流逝时长"。两者混用会同时违反 ② 和 ③。
+static var _transition_active := false
+static var _transition_settle_gh := 0.0     # 本次过渡夜要结算的 GH 数
+static var _transition_elapsed_sec := 0.0   # 过场已播秒数（表现层用，不驱动衰减）
+
+## 拨钟注入点（C27：GameLoop.elapsed_ticks 是时间唯一真相，**包 B 不直接写 core 状态**）
+## 签名：func(target_gh: float) -> bool，把钟拨到 target_gh（绝对值，累计 GH）
+## 未注入时跳夜/新局会返回 false + 明确 reason，**不静默算错**。
+## （包 B 既有同款先例：tech_tree_system.parts_gate）
+static var clock_advance_gate: Callable = Callable()
 
 # ── 波次时钟（整数帧；gh 一律由帧派生）──
 static var _wave_ticks := 0            # 当前波次时钟帧数
@@ -303,7 +328,7 @@ func _tick_realtime(_frames: int) -> void:
 
 
 ## 跨日：阶段A 05:00 / 阶段B 06:00（C16 DAY_ROLLOVER_ORDER 结算序）
-func _check_day_rollover() -> void:
+static func _check_day_rollover() -> void:
 	var gh := gh_now()
 	var mark := _prep_start_gh if stage == Stage.A_LOOT else _stage_b_dawn_gh
 	if gh < mark or _rolled_today:
@@ -312,11 +337,14 @@ func _check_day_rollover() -> void:
 	_rollover()
 
 
-func _rollover() -> void:
+static func _rollover() -> void:
 	day += 1
 	if stage == Stage.A_LOOT:
-		if day >= 8:
-			_enter_stage_b()
+		# ⚠ 阶段A→B 的切换点唯一 = **D7 20:00 门锁那一刻**（架构 §11.1 修订 v1.1），
+		#   由 begin_transition_night() 触发，**不在跨日里跳**。
+		#   旧版这里写 `if day >= 8: _enter_stage_b()`，等于把过渡夜整个跳过——
+		#   实测：跳夜后 stage 变 B、day=8，但 gh 没动（还是 D7 21:00），
+		#   玩家眼前仍是夜里却被告知"天亮了"。已改为不在此处切阶段。
 		phase = Phase.PREP
 	else:
 		night_index += 1
@@ -325,7 +353,7 @@ func _rollover() -> void:
 
 
 ## M5：阶段A→阶段B 切换。触发点 = D7 过渡夜结束（day 8 清晨）。
-func _enter_stage_b() -> void:
+static func _enter_stage_b() -> void:
 	stage = Stage.B_SIEGE
 	night_index = 1
 	day = 8
@@ -345,10 +373,151 @@ func register_overtime_night() -> bool:
 
 
 # ════════════════════════════════════════════════════════════════
+#  新局 / 拨钟 / 过渡夜（TASK-G M3/M5 逻辑组配合项⑤）
+# ════════════════════════════════════════════════════════════════
+
+## 拨钟：把 GameLoop 的 elapsed_ticks 拨到 target_gh 对应帧。
+## C27 规定 elapsed_ticks 是时间唯一真相，而 GameLoop 属 core——
+## 包 B 不直接写 core 状态，走注入回调。未注入即失败（不静默算错）。
+static func _advance_clock_to(target_gh: float) -> Dictionary:
+	if not clock_advance_gate.is_valid():
+		return {"ok": false, "reason": "no_clock_gate"}
+	var ok := bool(clock_advance_gate.call(target_gh))
+	return {"ok": ok, "reason": "ok" if ok else "gate_rejected"}
+
+
+## 新开一局：复位到 D1 05:00 阶段A PREP（TASK-G M1 冷启动）
+##
+## ★ 为什么需要这个 API：表现组此前在 game_world.gd:109 直接写
+##   `TimeSystem._rolled_today = true` 来绕"首个 tick 把 day 滚到 2"的坑——
+##   那是访问私有静态变量，属于跨包越界。本 API 是它的正式替代。
+##
+## 返回 {ok, reason, day, gh}
+static func begin_new_run() -> Dictionary:
+	var target_gh := _prep_start_gh     # 05:00
+	var r := _advance_clock_to(target_gh)
+	if not bool(r.get("ok", false)):
+		# 拨钟失败时**不改状态**——半开一局比不开更糟（day 和 gh 会对不上）
+		return {"ok": false, "reason": str(r.get("reason", "")), "day": day,
+			"gh": gh_now()}
+	stage = Stage.A_LOOT
+	phase = Phase.PREP
+	mode = TimeMode.REALTIME
+	day = 1
+	night_index = 0
+	k_overtime = 0
+	_transition_active = false
+	_transition_settle_gh = 0.0
+	_transition_elapsed_sec = 0.0
+	# 05:00 起步 = 今天的跨日结算已算过，否则首个 tick 会把 day 滚到 2
+	_rolled_today = true
+	_sync_time_state()
+	return {"ok": true, "reason": "ok", "day": day, "gh": gh_now()}
+
+
+## 跳夜（阶段A 有床时）：瞬时结算到次日 05:00
+## TASK-G §5 M3「跳夜 → 次日 05:00 自动存档」靠它。
+## 返回 {ok, reason, day, gh, settled_gh}
+static func skip_to_next_prep() -> Dictionary:
+	if stage != Stage.A_LOOT:
+		return {"ok": false, "reason": "stage_b_no_skip", "day": day, "gh": gh_now()}
+	var now_gh := gh_now()
+	# 次日 05:00 的绝对 GH：今天的 05:00 + 24（若已过 05:00）或今天的 05:00
+	var today_mark := floorf(now_gh / 24.0) * 24.0 + _prep_start_gh
+	var target := today_mark if today_mark > now_gh else today_mark + 24.0
+	var settled := target - now_gh
+	var r := _advance_clock_to(target)
+	if not bool(r.get("ok", false)):
+		return {"ok": false, "reason": str(r.get("reason", "")), "day": day,
+			"gh": now_gh, "settled_gh": 0.0}
+	# 钟已拨到次日 05:00 —— 走一次跨日结算序（day+1，幂等锁要放开）
+	_rolled_today = false
+	_check_day_rollover()
+	_sync_time_state()
+	return {"ok": true, "reason": "ok", "day": day, "gh": gh_now(),
+		"settled_gh": settled}
+
+
+## 进过渡夜（D7 20:00 门锁那一刻；架构 §11.1「切换点唯一」）
+##
+## 返回 {ok, reason, settle_gh}
+## 调用方拿到 settle_gh 后，让各系统按这个 GH 数**一次性结算**（§13.5「瞬时结算」），
+## 结算完再调 finish_transition_night()。
+##
+## ⚠ 只允许在阶段A 且 day>=7 进（切换点唯一，不允许提前/重复）
+static func begin_transition_night() -> Dictionary:
+	if _transition_active:
+		return {"ok": false, "reason": "already_active", "settle_gh": _transition_settle_gh}
+	if stage != Stage.A_LOOT:
+		return {"ok": false, "reason": "not_stage_a", "settle_gh": 0.0}
+	if day < _days_stage_a:
+		return {"ok": false, "reason": "too_early", "settle_gh": 0.0}
+	# D7 20:00 → D8 06:00 = 10 GH（出走的 4 GH + 过夜的 6 GH）
+	var settle := (24.0 - _curfew_gh) + _stage_b_dawn_gh
+	_transition_active = true
+	_transition_settle_gh = settle
+	_transition_elapsed_sec = 0.0
+	phase = Phase.TRANSITION_NIGHT
+	mode = TimeMode.SCRIPTED      # §13.5：整段跳，无空闲等待
+	_sync_time_state()
+	return {"ok": true, "reason": "ok", "settle_gh": settle}
+
+
+## 过渡夜过场播完（表现层可播 _transition_night_sec 秒的氛围，也可直接跳过）
+## → 把钟拨到 D8 06:00 → 进阶段B
+## 返回 {ok, reason, day, night_index, stage}
+static func finish_transition_night() -> Dictionary:
+	if not _transition_active:
+		return {"ok": false, "reason": "not_active", "day": day, "night_index": night_index}
+	var now_gh := gh_now()
+	var today_mark := floorf(now_gh / 24.0) * 24.0 + _stage_b_dawn_gh
+	var target := today_mark if today_mark > now_gh else today_mark + 24.0
+	var r := _advance_clock_to(target)
+	if not bool(r.get("ok", false)):
+		return {"ok": false, "reason": str(r.get("reason", "")), "day": day,
+			"night_index": night_index}
+	_transition_active = false
+	_transition_elapsed_sec = 0.0
+	_enter_stage_b()
+	return {"ok": true, "reason": "ok", "day": day, "night_index": night_index,
+		"stage": _stage_name()}
+
+
+static func is_transition_night() -> bool:
+	return _transition_active
+
+
+static func transition_settle_gh() -> float:
+	return _transition_settle_gh
+
+
+## 过渡夜过场计时（表现层可选：播 _transition_night_sec 秒氛围后自己调 finish）
+## 不驱动任何衰减——衰减是 begin_transition_night() 返回的 settle_gh 一次性算的。
+static func tick_transition_visual(frames: int) -> void:
+	if not _transition_active:
+		return
+	_transition_elapsed_sec += float(frames) / float(_tick_hz)
+	if _transition_elapsed_sec >= _transition_night_sec:
+		_transition_elapsed_sec = _transition_night_sec
+
+
+static func transition_visual_done() -> bool:
+	return _transition_active and _transition_elapsed_sec >= _transition_night_sec
+
+
+# ════════════════════════════════════════════════════════════════
 #  WAVE_DRIVEN（阶段B 夜战）
 # ════════════════════════════════════════════════════════════════
 
-func begin_wave() -> void:
+## 开一场夜战（TASK-G §4 硬约束 2：夜间波次必须 WAVE_DRIVEN，禁真实时间驱动）
+## 返回 {ok, reason}
+## ⚠ 只有阶段B 才许开（阶段A 的夜里没有波次——D7 过渡夜「无波次」是架构 §11.1 明写的）
+static func begin_wave() -> Dictionary:
+	if stage != Stage.B_SIEGE:
+		return {"ok": false, "reason": "not_stage_b"}
+	if _transition_active:
+		# 过渡夜「不计夜次、无波次」——这条是架构原文，不是实现选择
+		return {"ok": false, "reason": "in_transition_night"}
 	mode = TimeMode.WAVE_DRIVEN
 	phase = Phase.NIGHT_WAVE
 	_wave_ticks = 0
@@ -357,6 +526,7 @@ func begin_wave() -> void:
 	_wave_elapsed_sec = 0.0
 	_wave_finished = false
 	_sync_time_state()
+	return {"ok": true, "reason": "ok"}
 
 
 ## WAVE_DRIVEN 专用；由 CombatSystem 每次击杀 / 每 30s 调用
@@ -447,9 +617,17 @@ func _skip_to_prep() -> void:
 func verify_time_modes() -> Dictionary:
 	var fpg := _GAME_LOOP.FRAMES_PER_GH
 	var out := {}
+	# WAVE_DRIVEN 只在阶段B 成立（TASK-G 硬约束2 + 架构 §11.1「过渡夜无波次」）。
+	# begin_wave() 有阶段守卫，本自检必须先摆到阶段B——
+	# 否则 begin_wave 被拒、波次根本没开，P12b 会假红（实测：加守卫后 P12b-1 立刻红）。
+	var save_stage_vm := stage
+	var save_tr_vm := _transition_active
+	stage = Stage.B_SIEGE
+	_transition_active = false
 
 	# ── P12b-1：击杀驱动，ratio 0→1，终点必须正好 30.0 GH（18 + 12）──
-	begin_wave()
+	var began := begin_wave()
+	out["P12b_begin_ok"] = bool(began.get("ok", false))
 	for i in 101:
 		advance_wave_progress(float(i) / 100.0, 0.0)
 	out["P12b_kill_gh"] = wave_settled_gh()
@@ -504,6 +682,144 @@ func verify_time_modes() -> Dictionary:
 	# ── P1 结构判据：全季帧数公式 ──
 	out["P1_frames_formula"] = (_GAME_LOOP.FRAMES_FULL_RUN
 		== 7 * _GAME_LOOP.FRAMES_PHASE_A_ACTIVE + 7 * _GAME_LOOP.FRAMES_PHASE_B_DAYTIME)
+
+	# 复原阶段（本函数开头为了 begin_wave 的守卫把 stage 摆到了 B）
+	stage = save_stage_vm
+	_transition_active = save_tr_vm
+	return out
+
+
+# ════════════════════════════════════════════════════════════════
+#  TASK-G M3/M5 判据：拨钟 / 过渡夜 / 阶段A→B
+# ════════════════════════════════════════════════════════════════
+#
+## 对着 TASK-G §3 逻辑组配合项⑤（阶段 A→B 切换实装，含过渡夜）与 §4 硬约束2
+## （夜间波次必须 WAVE_DRIVEN）。
+##
+## 架构依据：§11.1「切换点唯一：D7 20:00 门锁死的那一刻」+「D7 20:00 → D8 06:00 是
+##   过渡夜：不计夜次、无波次、只播氛围音」+ §13.1 第16条「过渡夜照常衰减 10 GH」。
+##
+## ★ 判据的期望值全部独立写死（10 GH 是 24-20+6 的算术结果，但那 20/6 是设计定稿
+##   prep/curfew 值，不是从被测代码取的）。本项目已踩三次恒真式。
+
+## 拨钟/过渡夜/阶段切换判据
+## 需要 clock_advance_gate 已注入（未注入时全部返回 false——这也是一条判据）
+static func verify_stage_transition() -> Dictionary:
+	var out := {}
+	# 保存现场
+	var s_stage := stage
+	var s_phase := phase
+	var s_mode := mode
+	var s_day := day
+	var s_night := night_index
+	var s_k := k_overtime
+	var s_roll := _rolled_today
+	var s_tr := _transition_active
+	var s_tr_gh := _transition_settle_gh
+
+	# ── ① 未注入拨钟时，新局/跳夜/过渡夜都必须**明确失败**（不静默算错）──
+	#   这条判据防的是"没接上却假装成功"——那种洞会让 game_world 以为时间动了。
+	var saved_gate := clock_advance_gate
+	clock_advance_gate = Callable()
+	var no_gate := begin_new_run()
+	out["G_no_gate_reason"] = str(no_gate.get("reason", ""))
+	out["G_no_gate_rejects"] = not bool(no_gate.get("ok", true))
+	clock_advance_gate = saved_gate
+
+	# ── ② 过渡夜结算 GH = 10（24-20 出走 + 6 到天亮）──
+	#    写死 10.0 而不是用 (24-_curfew_gh)+_stage_b_dawn_gh 自算——后者是恒真式
+	out["G_transition_settle_expected"] = 10.0
+	stage = Stage.A_LOOT
+	day = 7
+	night_index = 0        # ⚠ 必须显式复位：前面用例会改它（实测漏了 → 判据假红）
+	_transition_active = false
+	var tr := begin_transition_night()
+	out["G_transition_ok"] = bool(tr.get("ok", false))
+	out["G_transition_settle_gh"] = float(tr.get("settle_gh", -1.0))
+	out["G_transition_settle_ok"] = is_equal_approx(
+		float(tr.get("settle_gh", -1.0)), 10.0)
+	out["G_transition_phase"] = phase_name()
+	out["G_transition_phase_ok"] = phase == Phase.TRANSITION_NIGHT
+	# 过渡夜「不计夜次」：night_index 必须没动
+	out["G_transition_night_index"] = night_index
+	out["G_transition_no_night_count"] = night_index == 0
+	# 过渡夜「无波次」：此时开波次必须被拒
+	# ⚠ 这里只断言"被拒"，**不写死 reason**——过渡夜必在阶段A，
+	#   所以先撞 `not_stage_b` 守卫（实测 reason="not_stage_b"）。
+	#   第一版写死了 "in_transition_night"，判据假红：行为对的、期望错的。
+	var wave_in_tr := begin_wave()
+	out["G_transition_wave_reason"] = str(wave_in_tr.get("reason", ""))
+	out["G_transition_wave_rejected"] = not bool(wave_in_tr.get("ok", true))
+
+	# ── ③ 早于 D7 不许进过渡夜（切换点唯一）──
+	_transition_active = false
+	day = 5
+	var early := begin_transition_night()
+	out["G_early_reason"] = str(early.get("reason", ""))
+	out["G_early_rejected"] = (not bool(early.get("ok", true))) \
+		and str(early.get("reason", "")) == "too_early"
+
+	# ── ④ 重复调用幂等（不许把 settle_gh 累加）──
+	_transition_active = false
+	day = 7
+	begin_transition_night()
+	var again := begin_transition_night()
+	out["G_repeat_reason"] = str(again.get("reason", ""))
+	out["G_repeat_settle_unchanged"] = is_equal_approx(
+		float(again.get("settle_gh", -1.0)), 10.0)
+	out["G_repeat_rejected"] = (not bool(again.get("ok", true))) \
+		and str(again.get("reason", "")) == "already_active"
+
+	# ── ⑤ 阶段B 不许跳夜（核心动词：阶段B 不可跳夜）──
+	_transition_active = false
+	stage = Stage.B_SIEGE
+	var skip_b := skip_to_next_prep()
+	out["G_stage_b_skip_rejected"] = (not bool(skip_b.get("ok", true))) \
+		and str(skip_b.get("reason", "")) == "stage_b_no_skip"
+
+	# ── ⑥ 阶段A 才许开波次（阶段A 的夜里没有波次）──
+	stage = Stage.A_LOOT
+	_transition_active = false
+	var wave_a := begin_wave()
+	out["G_stage_a_wave_rejected"] = (not bool(wave_a.get("ok", true))) \
+		and str(wave_a.get("reason", "")) == "not_stage_b"
+
+	# ── ⑦ 阶段B 开波次 → mode 必须是 WAVE_DRIVEN（硬约束2）──
+	stage = Stage.B_SIEGE
+	var wave_b := begin_wave()
+	out["G_stage_b_wave_ok"] = bool(wave_b.get("ok", false))
+	out["G_wave_mode"] = mode_name()
+	out["G_wave_driven"] = mode == TimeMode.WAVE_DRIVEN
+	out["G_wave_phase"] = phase_name()
+	out["G_wave_phase_ok"] = phase == Phase.NIGHT_WAVE
+
+	# 复原
+	stage = s_stage
+	phase = s_phase
+	mode = s_mode
+	day = s_day
+	night_index = s_night
+	k_overtime = s_k
+	_rolled_today = s_roll
+	_transition_active = s_tr
+	_transition_settle_gh = s_tr_gh
+	_wave_finished = true
+	_wave_ticks = 0
+	_wave_settled_ticks = 0
+	_wave_kills_ratio = 0.0
+	_wave_elapsed_sec = 0.0
+	_sync_time_state()
+
+	out["G_all_pass"] = bool(out["G_no_gate_rejects"]) and bool(out["G_transition_ok"]) \
+		and bool(out["G_transition_settle_ok"]) and bool(out["G_transition_phase_ok"]) \
+		and bool(out["G_transition_no_night_count"]) \
+		and bool(out["G_transition_wave_rejected"]) \
+		and bool(out["G_early_rejected"]) and bool(out["G_repeat_rejected"]) \
+		and bool(out["G_repeat_settle_unchanged"]) \
+		and bool(out["G_stage_b_skip_rejected"]) \
+		and bool(out["G_stage_a_wave_rejected"]) \
+		and bool(out["G_stage_b_wave_ok"]) and bool(out["G_wave_driven"]) \
+		and bool(out["G_wave_phase_ok"])
 	return out
 
 
@@ -606,6 +922,8 @@ func _load_balance() -> void:
 		push_error("time_system: %s parse failed" % _BAL_PATH)
 		return
 	var d: Dictionary = parsed
+	_tick_hz = int(d.get("tick_hz_count", _tick_hz))
+	_days_stage_a = int(d.get("days_stage_a_count", _days_stage_a))
 	_prep_start_gh = float(d.get("prep_start_gh", _prep_start_gh))
 	_outing_start_gh = float(d.get("outing_start_gh", _outing_start_gh))
 	_outing_end_gh = float(d.get("outing_end_gh", _outing_end_gh))
