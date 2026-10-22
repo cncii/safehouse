@@ -279,6 +279,20 @@ ui_Frame.PNG               → 大写后缀 + 大写字符
 | 算法验证 | ✅ **通过**。两张不同来源精灵映射后：越界色 **0**、描边同为 `#222034`、羽化边缘被 `alpha_cut` 清掉 178 px |
 | 对比图 | `build/art_proof/palette_map_ab_compare.png`（上排原图 / 下排映射后） |
 | 验证脚本 | `build/art_proof/check_shader.gd` |
+| **GPU 真实渲染** | ❌ **未做，本机不可行**（见下） |
+
+> ⚠ **这张对比图不是 GPU 渲染出来的，是 Python 复刻算法画的。**
+> 2026-10-22 实测：`--headless` 下 `RenderingServer` 是 dummy 后端，`frame_post_draw` 永不触发，
+> `SubViewport.get_texture()` 拿不到像素——本机没有第二条路能离屏渲染（要真 GPU 输出得起窗口进程）。
+>
+> 这个限制的实际含义：**如果我对「Godot 采样 sRGB 纹理返回 linear 值」这个前提判断错了，
+> Python 复刻会跟着一起错，两张图仍然"符合预期"** —— 这是典型的自洽式假绿。
+> 目前能给的证据只有两条，都不到 GPU 级：
+> ① shader 被 4.3 完整编译（语法与 uniform 类型无误）；
+> ② `.import` 里 `compress/mode=0`、无 mipmap 的 2D sRGB 管线（导入侧配置正确）。
+> **真正确认要等第一批真实精灵图接入编辑器时截图**——那时若颜色不对，
+> 第一嫌疑是颜色空间，先调 `outline_luma` 与 palette 的 sRGB/linear 处理再动别的。
+
 
 复现命令：
 ```
@@ -298,6 +312,7 @@ Godot_v4.3-stable_win64_console.exe --headless --path <工程根> -s res://build
 ```
 □ 1. 图块 16×16；所有 PNG 宽高是 16 的整数倍          (S1 / A1)
 □ 2. 预览图数一遍：单素材色数 ≤ 32                     (S2 / A4)
+      且颜色必须在 DB32 内——采购素材天然不在，**先过 palette_map 再验**  (S2 / P1)
 □ 3. 光源方向 = 左上 45°，不是右上 / 顶光              (S3)
 □ 4. 视角 = 俯视 3/4，不是纯顶视 / 纯侧视              (S3)
 □ 5. 有 1px 深色描边，且与现有素材风格不混             (S4)
@@ -317,7 +332,8 @@ Godot_v4.3-stable_win64_console.exe --headless --path <工程根> -s res://build
 ### 7.1 机器验收
 
 ```powershell
-python tools/check_assets.py
+python tools/check_assets.py                  # 验收器（不可改）
+python tools/check_palette_conformance.py     # 色板一致性（本表 P1–P4）
 ```
 
 | 规则 | 判据 |
@@ -326,8 +342,16 @@ python tools/check_assets.py
 | A2 | 图集最长边 ≤ 2048 |
 | A3 | 命名 = 域前缀 + 小写蛇形 |
 | A4 | 单文件 ≤ 32 色 |
+| P1 | 可见像素的颜色**严格等于** DB32 某一色（差 1 也算违例） |
+| P2 | alpha 只允许 0 或 255 |
+| P3 | 单文件可见像素 > 0（空素材不算合规） |
+| P4 | 色板 LUT 的颜色集合与 §3.2 冻结表**完全一致** |
 
 ⚠ `tools/check_assets.py` **不可修改**（任务书 §3：改它 = 作弊）。
+
+**为什么另起一道 P 而不是改 A4**：A4 只数「有几个颜色」，判不了「这几个颜色是不是 target palette 里的」。
+一张 32 色但整张都在 DB32 之外的图，A4 会**直接放行** —— 而「全项目统一 target palette」正是 S2 的后半句。
+P1–P4 补的就是这半句，且**不碰验收器**。
 
 ### 7.2 人工验收（不可替代）
 
@@ -360,17 +384,19 @@ python tools/check_assets.py
 | — | `docs/asset_sourcing.md` | **保留** | 已入库 |
 | — | `build/art_proof/` | **入库** | 验收对比图 + 3 个可复跑的验证脚本一并入库 |
 
-### 8.1 当前生效的三道门禁
+### 8.1 当前生效的四道门禁
 
 | 门禁 | 命令 | 管什么 |
 |---|---|---|
 | 资产 | `python tools/check_assets.py` | A1 尺寸 / A2 图集 / A3 命名 / A4 色数 |
+| **色板一致性** | `python tools/check_palette_conformance.py` | **P1 色板归属 / P2 alpha 二值 / P3 非空 / P4 LUT 自洽** |
 | 导入参数 | `python tools/check_import_presets.py` | 像素字体与纹理的导入参数一致性（架构 §7.3） |
 | 字体覆盖 | `python tools/check_font_coverage.py --csv data/locale/strings.csv --font <ttf>` | S6 缺字 |
 
-> 三道门禁都返回退出码，可串进 CI。`check_assets.py` **仍不可修改**（任务书 §3）；后两个为新增。
-> 注意：`check_import_presets.py` 与 `check_font_coverage.py` 是**白名单外的补充工具**，
-> 与 `asset_sourcing.md` 同批核准（老板「两个文件都留」），后续改动请勿静默重写。
+> 四道门禁都返回退出码，可串进 CI。`check_assets.py` **仍不可修改**（任务书 §3）；后三个为新增。
+> 退出码约定：`0` 合规 / `1` 有违例 / `2` **not_effective**（扫描范围 0 个资产，不计通过也不计失败）。
+> 注意：后三个是**白名单外的补充工具**，与 `asset_sourcing.md` 同批核准（老板「两个文件都留」），
+> 后续改动请勿静默重写。
 
 ---
 
