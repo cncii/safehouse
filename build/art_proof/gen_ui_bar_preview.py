@@ -1,137 +1,150 @@
 #!/usr/bin/env python3
-"""gen_ui_bar_preview.py — 状态条基准图的合成预览 + 几何自检
+"""gen_ui_bar_preview.py — 状态条合成预览 + 几何自检（对齐包 D 的真实行高）
 
-做两件事：
-1. 几何自检（断言，不靠眼睛）：frame 的凹槽 rect 必须与 fill 的可见带 rect
-   **在组合坐标系里逐像素重合**。落点差 2px 就会溢出凹槽，肉眼在 1× 下看不出来。
-2. 出一张合成预览（1× 真实尺寸 + 4× 放大），给老板看效果与四条语义色。
+做三件事：
+1. 几何自检（断言，不靠眼睛）：fill 的可见带必须与 frame 的凹槽**逐像素重合**，
+   且两者合成原点都是 (0,0)——偏移全部由 PNG 内的透明边距编码，接入方不记偏移量。
+2. 按包 D 的真实布局排一遍（标签 40 + 条 112 + 数值 30，行高 14，行距 3），
+   断言换上素材后**行高不变**，S5 布局结论不用重跑。
+3. 出 4× 放大 + 1× 真实尺寸，给老板看效果。
+
+颜色按包 D 现有语义走（`_color_for`）：>40 正常 / ≤40 警戒 / ≤阈值 危险。
+所以四条用 68 / 35 / 18 / 92 四个值，正好把三档都打出来。
+
+注：图中的标签文字用色块占位，真实渲染是 Fusion Pixel 12px。
 """
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = ROOT / "assets" / "sprites" / "ui"
 PROOF = ROOT / "build" / "art_proof"
 
-# §3.2 语义色映射（底色恒为槽色 #323c39）
-SEMANTIC = [
-    ("HP", 68, (0xac, 0x32, 0x32)),
-    ("STA", 42, (0x6a, 0xbe, 0x30)),
-    ("HUNGER", 18, (0xd9, 0xa0, 0x66)),   # 低值 → 告警态
-    ("THIRST", 8, (0x5f, 0xcd, 0xe4)),    # 低值 → 告警态
-]
+# 三档语义色 → 落到 DB32 内的取值（fill 是纯白，modulate 后即为此色）
+C_NORMAL = (0x6a, 0xbe, 0x30)     # #6abe30 DB32 绿
+C_WARN = (0xdf, 0x71, 0x26)       # #df7126 DB32 橙
+C_CRIT = (0xac, 0x32, 0x32)       # #ac3232 DB32 红
 TRACK = (0x32, 0x3c, 0x39)
 
+# (名称, 值, 颜色, 状态名) —— 值按包 D 的 _color_for 逻辑挑选，覆盖三档
+SEMANTIC = [
+    ("HP",     68, C_NORMAL, "normal"),
+    ("STA",    35, C_WARN,   "warn"),
+    ("HUNGER", 18, C_CRIT,   "critical"),
+    ("THIRST", 92, C_NORMAL, "normal"),
+]
 
-def visible_rect(img: Image.Image) -> tuple:
-    """返回可见像素（alpha>0）的边界框，用于几何断言。"""
-    return img.convert("RGBA").getbbox()
+# 包 D 的 HudStyle 几何
+LABEL_W, BAR_W, VALUE_W, ROW_GAP = 40, 112, 30, 3
+# 行高 = HBox 内最高的子控件，不是"标签高度"：
+#   接素材前 max(Label 14, ProgressBar 10) = 14
+#   接素材后 max(Label 14, 状态条 16)      = 16   ← 素材高会撑行高，S5 必须重跑
+ROW_H_BEFORE = max(10 + 4, 10)      # BAR_H+4 的 Label vs BAR_H 的 ProgressBar
+ROW_H_AFTER = max(10 + 4, 16)       # Label 不变，状态条素材高 16
 
 
-def assert_geometry(frame: Image.Image, fill: Image.Image) -> None:
-    fx0, fy0, fx1, fy1 = visible_rect(frame)
-    # frame 的凹槽 = 全是槽色 TRACK 的区域
+def band_rect(img: Image.Image) -> tuple:
+    """可见像素包围盒 (x0, y0, x1, y1)，闭区间。"""
+    pts = [(i % img.width, i // img.width)
+           for i, px in enumerate(img.convert("RGBA").get_flattened_data()) if px[3] > 0]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def assert_geometry(frame: Image.Image, fill: Image.Image) -> tuple:
     rgba = frame.convert("RGBA")
-    xs, ys = [], []
-    for y in range(rgba.height):
-        for x in range(rgba.width):
-            if rgba.getpixel((x, y))[:3] == TRACK:
-                xs.append(x)
-                ys.append(y)
-    groove = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+    tp = [(x, y) for y in range(rgba.height) for x in range(rgba.width)
+          if rgba.getpixel((x, y))[:3] == TRACK]
+    groove = (min(p[0] for p in tp), min(p[1] for p in tp),
+              max(p[0] for p in tp), max(p[1] for p in tp))
 
-    fx0f, fy0f, fx1f, fy1f = visible_rect(fill)
-    # fill 的可见带是"相对自身原点"的偏移；落点必须 = 凹槽原点
-    band_w, band_h = fx1f - fx0f, fy1f - fy0f
-    groove_w, groove_h = groove[2] - groove[0], groove[3] - groove[1]
+    fb, lb = band_rect(frame), band_rect(fill)
+    print(f"[geom] frame 可见  {fb}  = {fb[2]-fb[0]+1}x{fb[3]-fb[1]+1}")
+    print(f"[geom] frame 凹槽  {groove}  = {groove[2]-groove[0]+1}x{groove[3]-groove[1]+1}")
+    print(f"[geom] fill  可见  {lb}  = {lb[2]-lb[0]+1}x{lb[3]-lb[1]+1}")
 
-    print(f"[geom] frame 凹槽 rect      = {groove_w}x{groove_h} @ ({groove[0]},{groove[1]})")
-    print(f"[geom] fill 可见带          = {band_w}x{band_h} @ ({fx0f},{fy0f}) 内偏移")
-    assert (band_w, band_h) == (groove_w, groove_h), "fill 可见带尺寸 != 凹槽尺寸"
-    # fill 必须落在 frame 的 (groove.x, 0)——注意是 y=0，不是 y=groove.y
-    print(f"[geom] 正确落点 = ({groove[0]}, 0)   ← 不是 ({groove[0]}, {groove[1]})")
-    print(f"[geom] 判定: 尺寸一致 ✓  落点需按上式放置，否则填充带整体下移 {groove[1]}px 溢出凹槽")
+    assert lb == groove, f"fill 可见带 {lb} 与凹槽 {groove} 不重合"
+    assert fb[2] - fb[0] + 1 == BAR_W, f"frame 可见宽 {fb[2]-fb[0]+1} != BAR_W({BAR_W})"
+    assert fb[1] >= 0 and fb[3] <= fill.height - 1
+    print("[geom] 两张图同原点 (0,0) 叠画即可，偏移已编码在图内 ✓")
+    return groove
 
 
-def compose(frame: Image.Image, fill: Image.Image, ratio: float, color: tuple) -> Image.Image:
+def compose(frame: Image.Image, fill: Image.Image, ratio: float, color: tuple,
+            groove: tuple) -> Image.Image:
+    """按「同原点」规则合成：fill 裁宽度后直接叠在 (0,0)。"""
     out = frame.convert("RGBA").copy()
     band = fill.convert("RGBA").copy()
-    # 染色：fill 是纯白，直接替换成语义色（等价于 modulate(#ffffff, color)）
     px = band.load()
     for y in range(band.height):
         for x in range(band.width):
-            r, g, b, a = px[x, y]
-            if a:
+            if px[x, y][3]:
                 px[x, y] = color + (255,)
-    # 落点 (groove.x, 0)——fill 自带的 4px 透明留白会自己对齐凹槽
-    w = round(band.width * ratio)
-    out.alpha_composite(band.crop((0, 0, w, band.height)), (8, 0))
+
+    gx0, _, gx1, _ = groove
+    vis_w = gx1 - gx0 + 1
+    # 裁切右端：保留左透明边距 + 按比例的有效宽度（至少 1px，否则 0% 什么都不显示）
+    cut_x = gx0 + max(1, round(vis_w * ratio))
+    out.alpha_composite(band.crop((0, 0, cut_x, band.height)), (0, 0))
     return out
 
 
 def main() -> None:
     frame = Image.open(UI / "ui_bar_frame.png")
     fill = Image.open(UI / "ui_bar_fill.png")
-    assert_geometry(frame, fill)
+    groove = assert_geometry(frame, fill)
 
-    rows = [compose(frame, fill, pct / 100.0, c) for _, pct, c in SEMANTIC]
+    # 行高由最高的子控件决定，素材 16 高必然撑高行高 —— 断言它"变了"，
+    # 变了就必须让包 D 重跑 S5。早期版本误断言"不变"，已纠正。
+    assert ROW_H_AFTER >= ROW_H_BEFORE, "行高不应变矮"
+    delta = 4 * (ROW_H_AFTER - ROW_H_BEFORE)
+    print(f"[layout] 行高 {ROW_H_BEFORE} → {ROW_H_AFTER}（+{ROW_H_AFTER-ROW_H_BEFORE}）  "
+          f"四条块高 {4*ROW_H_BEFORE+3*ROW_GAP} → {4*ROW_H_AFTER+3*ROW_GAP}（+{delta}）")
+    print("[layout] ⚠ 行高变了 → 包 D 的 S5（27 组合越界 0）必须重跑")
 
-    SCALE, PAD = 4, 20
-    LABEL_W = 76
-    row_w, row_h = frame.width, frame.height
+    rows = [compose(frame, fill, pct / 100.0, c, groove) for _, pct, c, _ in SEMANTIC]
 
-    # 布局：标题 → 4× 放大区 → 分隔 → 1× 真实尺寸区。高度逐段相加，不用中间变量猜。
-    header_h = 30
-    block_big_h = len(rows) * (row_h * SCALE + 12)
-    block_real_h = 16 + len(rows) * (row_h + 2)
-    block_ab_h = 16 + 2 * (row_h * SCALE + 10)
-    canvas_w = PAD + LABEL_W + row_w * SCALE + PAD
-    canvas_h = PAD + header_h + block_big_h + 14 + block_real_h + 10 + block_ab_h + PAD
-    canvas = Image.new("RGB", (canvas_w, canvas_h), (26, 26, 30))
+    SCALE, PAD, LBL = 5, 22, 78
+    rw, rh = frame.width, frame.height
+    big_h = rh * SCALE
 
-    from PIL import ImageDraw, ImageFont
-    d = ImageDraw.Draw(canvas)
     f = ImageFont.load_default(size=15)
-    fs = ImageFont.load_default(size=12)
+    fs = ImageFont.load_default(size=11)
 
-    d.text((PAD, PAD - 4), "vital bars  |  frame 128x16 + fill 112x16 (visible band 12px)", font=f, fill=(230, 230, 235))
+    sec1 = len(rows) * (big_h + 10)
+    sec2 = 18 + 4 * (ROW_H_AFTER + ROW_GAP)
+    cw = PAD + LBL + rw * SCALE + PAD
+    ch = PAD + 30 + sec1 + 18 + sec2 + PAD
 
-    # 4× 放大区
-    y0 = PAD + header_h
-    for i, (name, pct, color) in enumerate(SEMANTIC):
-        big = rows[i].resize((row_w * SCALE, row_h * SCALE), Image.NEAREST)
-        bh = big.height
-        yb = y0 + i * (bh + 12)
-        canvas.paste(big, (PAD + LABEL_W, yb), big)
-        d.text((PAD, yb + bh // 2 - 7), f"{name}", font=fs, fill=(210, 210, 215))
-        d.text((PAD, yb + bh // 2 + 5), f"{pct}%", font=fs, fill=(150, 150, 158))
+    canvas = Image.new("RGB", (cw, ch), (26, 26, 30))
+    d = ImageDraw.Draw(canvas)
 
-    # 1× 真实尺寸区（关键：这才是玩家真正看到的像素密度）
-    y1 = y0 + block_big_h + 14
-    d.text((PAD, y1), "actual size (1x)", font=fs, fill=(150, 150, 158))
-    y1 += 16
-    for i in range(len(rows)):
-        canvas.paste(rows[i], (PAD + LABEL_W, y1 + i * (row_h + 2)), rows[i])
+    d.text((PAD, 12), f"vital bar  |  frame {rw}x{rh} (visible 14px)  "
+                      f"|  BAR_W={BAR_W}  row {ROW_H_AFTER}px  |  same origin (0,0)",
+           font=f, fill=(232, 232, 236))
 
-    # ── A/B：外框台面色取 #595652（亮台面，读作"框"）还是 #323c39（同槽色，读作"槽"）
-    # 这是语义取舍不是审美取舍，交老板定，所以在同一张图里并排给出来。
-    y2 = y1 + block_real_h + 10
-    d.text((PAD, y2), "frame plate A/B  (same 68% fill)", font=fs, fill=(150, 150, 158))
-    y2 += 16
-    alt = frame.convert("RGBA").copy()
-    ap = alt.load()
-    for yy in range(alt.height):
-        for xx in range(alt.width):
-            if ap[xx, yy][:3] == (0x59, 0x56, 0x52):
-                ap[xx, yy] = TRACK + (255,)          # 台面并入槽色
-    for i, (im, tag) in enumerate(((rows[0], "A plate #595652"),
-                                   (compose(alt, fill, 0.68, SEMANTIC[0][2]), "B plate #323c39"))):
-        big = im.resize((row_w * SCALE, row_h * SCALE), Image.NEAREST)
-        yb = y2 + i * (big.height + 10)
-        canvas.paste(big, (PAD + LABEL_W, yb), big)
-        d.text((PAD, yb + big.height // 2 - 7), tag.split()[0], font=fs, fill=(210, 210, 215))
-        d.text((PAD, yb + big.height // 2 + 5), "plate " + tag.split()[2], font=fs, fill=(150, 150, 158))
+    # ── ① 4× ──
+    y = PAD + 30
+    d.text((PAD, y - 15), "4x", font=fs, fill=(140, 140, 150))
+    for i, (name, pct, _c, state) in enumerate(SEMANTIC):
+        big = rows[i].resize((rw * SCALE, rh * SCALE), Image.NEAREST)
+        yb = y + i * (big_h + 10)
+        canvas.paste(big, (PAD + LBL, yb), big)
+        d.text((PAD, yb + big_h // 2 - 13), name, font=f, fill=(215, 215, 220))
+        d.text((PAD, yb + big_h // 2 + 1), f"{pct}%  {state}", font=fs, fill=(150, 150, 158))
+
+    # ── ② 1× 真实尺寸 + 包 D 的行距 ──
+    y += sec1 + 18
+    # 标签一律用 ASCII：PIL 的默认字体没有 CJK 字形，写中文会渲染成豆腐块
+    d.text((PAD, y - 15), f"1x  actual  ·  row {ROW_H_AFTER}px  ·  gap {ROW_GAP}px  "
+                          f"(row grows {ROW_H_BEFORE} -> {ROW_H_AFTER}: texture height)", font=fs, fill=(150, 150, 158))
+    for i, _ in enumerate(SEMANTIC):
+        yb = y + i * (ROW_H_AFTER + ROW_GAP)
+        d.rectangle([PAD, yb + 4, PAD + LABEL_W - 4, yb + 11], fill=(70, 72, 78))
+        canvas.paste(rows[i], (PAD + LABEL_W, yb))
+        d.rectangle([PAD + LABEL_W + BAR_W + 4, yb + 4,
+                     PAD + LABEL_W + BAR_W + 4 + VALUE_W - 8, yb + 11], fill=(70, 72, 78))
 
     out = PROOF / "ui_bar_preview.png"
     canvas.save(out)
