@@ -88,3 +88,58 @@ static func run(host) -> void:
 		and bool(out.get("G_wave_phase_ok", false)))
 
 	ts.queue_free()
+
+
+## 死亡重开（TASK-G DoD G4 的时间侧）
+## 架构 §5.4：「死亡从当日清晨重开，种子按『局种子+天数』派生 →
+##   同一天重开随机内容完全一致」。
+## 本组负责时间复位；「同种子同日布局一致」由 map 侧 M9 判据覆盖。
+##
+## 变异测试（2 个变异体各自被抓）：
+##   A：day_start 用 floor(g/24)*24+mark（会跳到次日）→ 凌晨用例抓（G-RS-midnight 红）
+##   B：重开时 day+1（变成次日重开）→ G-RS-same-day / G-RS-3x 红
+
+const RESTART_DAY_A_START_GH := 53.0        # D3 05:00 = 2*24 + 5
+const RESTART_DAY_B_START_GH := 174.0       # D8 06:00 = 7*24 + 6
+const RESTART_MIDNIGHT_EXPECTED_GH := 5.0   # 第1天 03:00 死 → 回第0天 05:00
+
+
+static func run_restart(host) -> void:
+	var ts = TimeSystem.new()
+	host.add_child(ts)
+	ts.clock_advance_gate = Callable(host, "_advance_clock_for_test")
+
+	var out: Dictionary = ts.verify_restart_same_day()
+	host._t("G-RS-0 verify_restart_same_day() returned non-empty result", not out.is_empty())
+	if out.is_empty():
+		host._block(["G-RS-same-day", "G-RS-3x", "G-RS-stage-b", "G-RS-midnight"],
+			"blocked: verify_restart_same_day() empty")
+		ts.queue_free()
+		return
+
+	# ── ① 同日重开：day 不变，钟回当日 05:00 ──
+	host._t("G-RS-same-day restart from %.0f GH -> day stays %d, gh=%.0f (expected %.0f)"
+		% [float(out.get("G_restart_before_gh", -1)), int(out.get("G_restart_day", -1)),
+			float(out.get("G_restart_gh", -1)), RESTART_DAY_A_START_GH],
+		bool(out.get("G_restart_day_unchanged", false))
+		and bool(out.get("G_restart_gh_ok", false))
+		and bool(out.get("G_restart_phase_ok", false)))
+
+	# ── ② 连开 3 次，落点完全相同（DoD G4 的"×3"）──
+	host._t("G-RS-3x restart 3x lands on identical day+gh (%d runs)"
+		% int(out.get("G_restart_runs", -1)),
+		bool(out.get("G_restart_3x_pass", false))
+		and int(out.get("G_restart_runs", 0)) == 3)
+
+	# ── ③ 阶段B 重开落在 06:00（不是 05:00）──
+	host._t("G-RS-stage-b stage B restart lands on %.0f (dawn 06:00)"
+		% RESTART_DAY_B_START_GH,
+		bool(out.get("G_restart_b_gh_ok", false))
+		and bool(out.get("G_restart_b_day_unchanged", false)))
+
+	# ── ④ ★ 判据牙齿：凌晨死亡必须回"当天"的 mark，不是次日 ──
+	host._t("G-RS-midnight death at 03:00 returns %.0f (same day, not next)"
+		% RESTART_MIDNIGHT_EXPECTED_GH,
+		bool(out.get("G_restart_midnight_ok", false)))
+
+	ts.queue_free()

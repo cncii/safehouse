@@ -97,6 +97,10 @@ var RE_KEY := "Localize\\.(?:text|textf)\\(\\s*\"([^\"]*)\""
 # MAIN_MENU_TITLE / MAIN_MENU_HINT——NEW/CONTINUE/SETTINGS/QUIT 走 _button(key) 参数
 # 传递不构成字面量；inventory_panel.gd 的 INV_TITLE / INV_USE / INV_EMPTY / INV_CAPACITY），
 # 冻结基线随之更新 30 → 36。
+# 修订 #10（2026-10-22）：TASK-G M2 总览图 + 超市灰盒 +3 字面量
+# （overview_map_scene.gd 的 OVERVIEW_TITLE ×2 —— 标题与"当前位置"两处；
+#  OVERVIEW_NO_ROUTE ×1。OVERVIEW_BACK / INTERACT_PICK / PROMPT_EXIT 走参数传递、
+#  NODE_* 走 "NODE_" + 大写拼接，均不构成 Localize 字面量），冻结基线 36 → 39。
 var EXPECT_KEYS: Array = [
 		"ACTION_", "ACTION_", "ACTION_", "ACTION_MOVE_RIGHT",
 		"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
@@ -107,7 +111,9 @@ var EXPECT_KEYS: Array = [
 		"LOOP_BLOCK_", "LOOP_BLOCK_", "LOOP_CHAIN_", "LOOP_CHAIN_", "LOOP_CHAIN_",
 		"LOOP_DATA_NOT_WIRED", "LOOP_DATA_NOT_WIRED", "LOOP_PANEL_TITLE", "LOOP_REPORT_GAP",
 		"MAIN_MENU_HINT", "MAIN_MENU_TITLE",
-		"NO_SUCH_KEY_XYZ", "SETTINGS_CLOSE", "SETTINGS_KEYBIND",
+		"NO_SUCH_KEY_XYZ",
+		"OVERVIEW_NO_ROUTE", "OVERVIEW_TITLE", "OVERVIEW_TITLE",
+		"SETTINGS_CLOSE", "SETTINGS_KEYBIND",
 		"SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
 	]
 
@@ -116,6 +122,9 @@ var EXPECT_KEYS: Array = [
 # 修订 #8：随表现组 S6 键位词条更新 33 → 47（+ACTION×10 / +KEYBIND×5 / -SETTINGS_KEYBIND_TODO，
 # 即 HUD×9 / LANG×3 / LOOP×16 / SETTINGS×4 / ACTION×10 / KEYBIND×5）。
 # 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58（+MAIN_MENU×6 / +INV×4 / +INTERACT_PICK）。
+# 修订 #10：随 TASK-G M2 总览图/超市词条更新 58 → 76（+OVERVIEW×4 / +NODE×11 /
+# +ENEMY×2 / +PROMPT_EXIT）。NODE_* 前缀拼接的 11 个键必须在表里——A3-3 比的是
+# CSV 全集，拼接字面量不影响 A3-1，但缺键会让 A2-2 的"缺键兜底"在真实地点名上误报。
 var EXPECT_CSV_KEYS: Array = [
 	"HUD_CLOCK_DAY", "HUD_CLOCK_TIME", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
 	"HUD_STAGE_UNKNOWN", "HUD_VITAL_HP", "HUD_VITAL_HUNGER", "HUD_VITAL_STAMINA",
@@ -134,6 +143,11 @@ var EXPECT_CSV_KEYS: Array = [
 	"MAIN_MENU_SETTINGS", "MAIN_MENU_TITLE",
 	"INV_CAPACITY", "INV_EMPTY", "INV_TITLE", "INV_USE",
 	"INTERACT_PICK",
+	"OVERVIEW_TITLE", "OVERVIEW_TRAVEL", "OVERVIEW_NO_ROUTE", "OVERVIEW_BACK",
+	"NODE_SAFEHOUSE", "NODE_SUPERMARKET", "NODE_GAS_STATION", "NODE_DEPARTMENT_STORE",
+	"NODE_HARDWARE_STORE", "NODE_PHARMACY", "NODE_POLICE_STATION", "NODE_RESIDENTIAL",
+	"NODE_FARM", "NODE_METRO", "NODE_RADIO_TOWER",
+	"ENEMY_ZOMBIE", "ENEMY_HP", "PROMPT_EXIT",
 ]
 
 func _ready() -> void:
@@ -223,6 +237,8 @@ func _ready() -> void:
 	TaskGFlowTests.run(self)
 	# ── TASK-G 拨钟 / 过渡夜 / 阶段A→B（M3/M5 里程碑）──
 	TaskGStageTests.run(self)
+	# ── TASK-G 死亡重开（M4 里程碑，DoD G4 的时间侧）──
+	TaskGStageTests.run_restart(self)
 	# ── seed 存档往返精度（P0 回归门禁，2026-10-22 修复后转常规）──
 	SaveSeedTests.run(self)
 
@@ -282,8 +298,9 @@ func _run_localize_asserts() -> void:
 	# 修订 #7：随逻辑组循环面板文案更新 17 → 33
 	# 修订 #8：随表现组 S6 键位词条更新 33 → 47（strings.csv 现 47 有效键）
 	# 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58
-	_t("A0-4 locale table loaded (size == 58, else all value asserts are void)",
-		L._table.size() == 58)
+	# 修订 #10：随 TASK-G M2 总览图/超市词条更新 58 → 76
+	_t("A0-4 locale table loaded (size == 76, else all value asserts are void)",
+		L._table.size() == 76)
 	if L._table.size() == 0:
 		_block(["A2-1", "A2-2", "A2-3", "A2-4", "A2-5", "A3-2", "A4-1"],
 			"blocked: locale table empty")

@@ -505,6 +505,55 @@ static func transition_visual_done() -> bool:
 	return _transition_active and _transition_elapsed_sec >= _transition_night_sec
 
 
+## 当日清晨的绝对 GH（那一天是从 mark 起算的 24 GH）
+## 一天 = [mark + k*24, mark + (k+1)*24)；gh 落在哪个区间就是"哪一天"。
+## ⚠ 不能用 floorf(gh/24)*24 + mark —— 那个公式在 gh 刚过 mark 时会给出**次日**的
+##   mark（相差 24 GH，重开会跳到明天）。必须用 (gh - mark) 先平移。
+static func day_start_gh(mark: float) -> float:
+	var g := gh_now()
+	return mark + floorf((g - mark) / 24.0) * 24.0
+
+
+## 死亡重开：回到**当日清晨**（架构 §5.4「死亡从当日清晨重开」）
+##
+## 架构原文：「存档点为每日清晨单点自动存档（阶段A 05:00 / 阶段B 06:00）；
+##   死亡从当日清晨重开，种子按『局种子+天数』派生 → 同一天重开随机内容完全一致。」
+##
+## 所以本函数**只做时间侧复位**：
+##   - day 不变（同日重开，不是次日）
+##   - 钟拨回当日 mark（阶段A 05:00 / 阶段B 06:00）
+##   - 阶段/时段复位到该 mark 应有的状态
+## 其余状态（背包/搜刮标记/设施）由**当日清晨的存档**恢复——
+##   那不是本组的活（表现组编排场景 + Save.apply_persisted 分发）。
+##
+## 返回 {ok, reason, day, gh}
+static func restart_same_day() -> Dictionary:
+	var mark := _prep_start_gh if stage == Stage.A_LOOT else _stage_b_dawn_gh
+	var target := day_start_gh(mark)
+	if target < 0.0:
+		# 理论不可达（开局就在 mark），但绝不拨到负 GH 装没事
+		return {"ok": false, "reason": "invalid_day_start", "day": day, "gh": gh_now()}
+	var r := _advance_clock_to(target)
+	if not bool(r.get("ok", false)):
+		return {"ok": false, "reason": str(r.get("reason", "")), "day": day, "gh": gh_now()}
+	# 同日重开：day 不动
+	phase = Phase.PREP if stage == Stage.A_LOOT else Phase.EVENING
+	mode = TimeMode.REALTIME
+	_transition_active = false
+	_transition_settle_gh = 0.0
+	_transition_elapsed_sec = 0.0
+	# 重开后当天还没跨日，跨日结算锁要放开（否则下一次 05:00 不会 day+1）
+	_rolled_today = false
+	# 波次状态清干净（重开不能带着上一局的波次进度）
+	_wave_ticks = 0
+	_wave_settled_ticks = 0
+	_wave_kills_ratio = 0.0
+	_wave_elapsed_sec = 0.0
+	_wave_finished = false
+	_sync_time_state()
+	return {"ok": true, "reason": "ok", "day": day, "gh": gh_now()}
+
+
 # ════════════════════════════════════════════════════════════════
 #  WAVE_DRIVEN（阶段B 夜战）
 # ════════════════════════════════════════════════════════════════
@@ -820,6 +869,103 @@ static func verify_stage_transition() -> Dictionary:
 		and bool(out["G_stage_a_wave_rejected"]) \
 		and bool(out["G_stage_b_wave_ok"]) and bool(out["G_wave_driven"]) \
 		and bool(out["G_wave_phase_ok"])
+	return out
+
+
+## 死亡重开判据（TASK-G DoD G4：死亡重开 ×3，同种子同日内容一致）
+##
+## 架构 §5.4 的规则：「死亡从当日清晨重开，种子按『局种子+天数』派生 →
+##   同一天重开随机内容完全一致」。
+##
+## 本判据覆盖**时间侧**（本组的活）：
+##   ① 同日重开：day 不变（不是次日）
+##   ② 钟拨回当日 mark（阶段A 05:00 / 阶段B 06:00），不是"刚才那一刻"
+##   ③ 连开 3 次，每次落点 GH 完全相同（幂等，不漂移）
+##   ④ 阶段B 重开落在 06:00；阶段A 落在 05:00
+## 「同种子同日布局一致」由 map 侧 M9 判据覆盖（verify_determinism），此处不重复。
+static func verify_restart_same_day() -> Dictionary:
+	var out := {}
+	var s_stage := stage
+	var s_day := day
+	var s_phase := phase
+	var s_rolled := _rolled_today
+
+	# ── ① 阶段A：D3 下午 14:00 死亡 → 重开回 D3 05:00 ──
+	stage = Stage.A_LOOT
+	day = 3
+	# 拨到 D3 14:00：以 05:00 为日界，D3 的 day_start = 2*24+5 = 53，14:00 = 53+9 = 62
+	var d3_1400 := 53.0 + 9.0
+	clock_advance_gate.call(d3_1400)
+	out["G_restart_before_gh"] = gh_now()
+	var r := restart_same_day()
+	out["G_restart_ok"] = bool(r.get("ok", false))
+	out["G_restart_day"] = day
+	out["G_restart_day_unchanged"] = day == 3
+	out["G_restart_gh"] = gh_now()
+	# 期望值写死：D3 的清晨 = 2*24+5 = 53
+	out["G_restart_gh_expected"] = 53.0
+	out["G_restart_gh_ok"] = is_equal_approx(gh_now(), 53.0)
+	out["G_restart_phase"] = phase_name()
+	out["G_restart_phase_ok"] = phase == Phase.PREP
+
+	# ── ② 连开 3 次，落点必须完全相同（幂等，不漂移）──
+	var gh_runs: Array[float] = []
+	var day_runs: Array[int] = []
+	for _i in 3:
+		clock_advance_gate.call(d3_1400)     # 每次都"死一次"
+		day = 3
+		restart_same_day()
+		gh_runs.append(gh_now())
+		day_runs.append(day)
+	var same_gh := true
+	var same_day := true
+	for i in 3:
+		if not is_equal_approx(gh_runs[i], 53.0):
+			same_gh = false
+		if day_runs[i] != 3:
+			same_day = false
+	out["G_restart_runs"] = gh_runs.size()
+	out["G_restart_3x_same_gh"] = same_gh
+	out["G_restart_3x_same_day"] = same_day
+	out["G_restart_3x_pass"] = same_gh and same_day and gh_runs.size() == 3
+
+	# ── ③ 阶段B：重开落在当日 06:00（不是 05:00）──
+	stage = Stage.B_SIEGE
+	day = 8
+	# 阶段B 日界 06:00：D8 的 day_start = 7*24+6 = 174，18:00 = 174+12 = 186
+	clock_advance_gate.call(186.0)
+	restart_same_day()
+	out["G_restart_b_gh"] = gh_now()
+	out["G_restart_b_expected"] = 174.0
+	out["G_restart_b_gh_ok"] = is_equal_approx(gh_now(), 174.0)
+	out["G_restart_b_day_unchanged"] = day == 8
+
+	# ── ④ ★ 凌晨边界：这条是判据牙齿所在 ──
+	# 死亡发生在"过了午夜但还没到当日 mark"的时刻（g=27 = 第1天 03:00）。
+	# 正确落点 = 5（**当天**的 05:00，即前一天那轮的开日点）
+	# 错误落点 = 29（用 floorf(g/24)*24+mark 那个"看起来更直观"的公式 → 跳到次日）
+	# 实测：只测 14:00/18:00 时两个公式**碰巧同解**（floor 都落在同一格），
+	# 变异体 A 全绿——必须用凌晨点才能区分。
+	stage = Stage.A_LOOT
+	day = 1
+	clock_advance_gate.call(27.0)      # 第1天 03:00
+	restart_same_day()
+	out["G_restart_midnight_gh"] = gh_now()
+	out["G_restart_midnight_expected"] = 5.0
+	out["G_restart_midnight_ok"] = is_equal_approx(gh_now(), 5.0)
+
+	# 复原
+	stage = s_stage
+	day = s_day
+	phase = s_phase
+	_rolled_today = s_rolled
+	_sync_time_state()
+
+	out["G_restart_all_pass"] = bool(out["G_restart_ok"]) \
+		and bool(out["G_restart_day_unchanged"]) and bool(out["G_restart_gh_ok"]) \
+		and bool(out["G_restart_phase_ok"]) and bool(out["G_restart_3x_pass"]) \
+		and bool(out["G_restart_b_gh_ok"]) and bool(out["G_restart_b_day_unchanged"]) \
+		and bool(out["G_restart_midnight_ok"])
 	return out
 
 
