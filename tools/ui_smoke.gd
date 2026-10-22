@@ -30,6 +30,7 @@ func _ready() -> void:
 	_test_audio_alarms()
 	await _test_m1_world()
 	await _test_m2_world()
+	await _test_m3_world()
 	_finish()
 
 # ── 本地化链路 ──
@@ -502,6 +503,90 @@ func _test_m2_world() -> void:
 
 	market.free()
 	world.free()
+
+
+## ── M3：回屋研发/跳夜 → 05:00 自动存档 → 一天闭环 ──────────────────
+## 期望值一律独立写死：05:00 起点 = 5.0 GH（time.json 定稿）、
+## 跳夜后 = 次日 05:00（+24 GH）、unlock_water_basic 的 cost_parts 2 / research_gh 2
+## 来自 tech_tree.json 定稿值——都不从被测代码现取。
+func _test_m3_world() -> void:
+	var world := GameWorld.new()
+	get_tree().root.add_child(world)
+	await get_tree().process_frame
+	world.start_new_game(7)
+
+	_t("m3: systems mounted (loop/tech/event)",
+		world.loop_sys != null and world.tech_sys != null and world.event_sys != null)
+	_t("m3: begin_new_run puts run at D1 05:00 stage A",
+		TimeSystem.day == 1 and is_equal_approx(TimeSystem.gh_now(), 5.0) \
+		and TimeSystem.stage == TimeSystem.Stage.A_LOOT)
+	_t("m3: tech parts_gate injected by world", world.tech_sys.parts_gate.is_valid())
+
+	# ── 研发全周期：给零件 → 开始（扣零件）→ research_tick 到时长 → 解锁 ──
+	world.inventory.add(&"item_parts", 5)
+	var parts_before := world.inventory.count_of(&"item_parts")
+	var r := world.start_research(&"unlock_water_basic")
+	_t("m3: start_research ok", bool(r.get("ok", false)))
+	_t("m3: research deducts cost_parts 2", 
+		world.inventory.count_of(&"item_parts") == parts_before - 2)
+	_t("m3: tech.researching points at the node",
+		world.tech_sys.researching_node() == "unlock_water_basic")
+	world.tech_sys.research_tick(2.0)       # research_gh 定稿值 = 2
+	_t("m3: research completes exactly at research_gh",
+		world.tech_sys.is_unlocked(&"unlock_water_basic"))
+
+	# ── 反向：零件不足必须拒绝（不许"白拿科技"）──
+	world.inventory.consume(&"item_parts", world.inventory.count_of(&"item_parts"))
+	var no_parts := world.start_research(&"unlock_cook")
+	_t("m3: research rejected when parts are short",
+		not bool(no_parts.get("ok", true)) \
+		and str(no_parts.get("reason", "")) == "no_parts")
+
+	# ── 跳夜：判定链（无床/不在家 都必须拒），再走真实链路 ──
+	var bad_bed := world.skip_night(false)
+	_t("m3: skip_night without bed is rejected",
+		not bool(bad_bed.get("ok", true)) and str(bad_bed.get("reason", "")) == "no_bed")
+
+	# 走到安全屋：player.scene_id 只许 SceneRouter 写，所以这里用真的路由器
+	var router := SceneRouter.new()
+	router.name = "SceneRouter"
+	get_tree().root.add_child(router)
+	await get_tree().process_frame
+	get_tree().current_scene = null      # 否则切场景会把 ui_smoke 自己 free 掉
+	await _goto_scene(router, &"safehouse")
+	_t("m3: route to safehouse sets player.scene_id",
+		str(State.read("player.scene_id")) == "safehouse")
+
+	var day_before := TimeSystem.day
+	var gh_before := TimeSystem.gh_now()
+	var slept := world.skip_night(true)
+	_t("m3: skip_night at home succeeds", bool(slept.get("ok", false)))
+	# 落点判据用「当天已过 GH == 5」而不是 gh_now()==gh_before+24：
+	# 进安全屋那一跳会走过几帧（GameLoop 每帧 +1），gh_before 带余数，
+	# 拿它加 24 去比就会差个零头（实测 29.00 vs 29.03 这种假红）。
+	# 05:00 的语义是"当天已过 0 小时"（gh_elapsed_today 以起钟点为 0），
+	# 不是 5.0——写 5.0 会把正确实现判红（第一次就踩了）。
+	_t("m3: skip lands on next day 05:00 (day+1, elapsed_today=0)",
+		TimeSystem.day == day_before + 1 \
+		and is_equal_approx(TimeSystem.gh_elapsed_today(), 0.0))
+	_t("m3: skip reports settled GH = (next 05:00 - now)",
+		is_equal_approx(float(slept.get("settled_gh", 0.0)), 29.0 - gh_before))
+
+	# ── 05:00 自动存档：存档可读回且 day 一致 ──
+	var run := Save.load_run()
+	_t("m3: day-start autosave written and loadable", not run.is_empty())
+	_t("m3: autosave carries the rolled-over day",
+		int((run.get("time", {}) as Dictionary).get("day", -1)) == TimeSystem.day)
+
+	world.free()
+
+
+func _goto_scene(router: SceneRouter, id: StringName) -> void:
+	router.goto(id, {}, 0.0)
+	for i in 900:
+		await get_tree().process_frame
+		if not router.is_transitioning():
+			return
 
 
 func _find_zone(n: Node, id: StringName) -> InteractionZone:

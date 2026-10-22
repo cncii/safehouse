@@ -73,6 +73,10 @@ func _physics_process(_delta: float) -> void:
 		var world := GameWorld.instance()
 		if world:
 			world.toggle_inventory()
+	elif Input.is_action_just_pressed("tech_tree"):
+		var world2 := GameWorld.instance()
+		if world2:
+			world2.toggle_research()
 
 
 func _update_flash() -> void:

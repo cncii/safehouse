@@ -101,6 +101,10 @@ var RE_KEY := "Localize\\.(?:text|textf)\\(\\s*\"([^\"]*)\""
 # （overview_map_scene.gd 的 OVERVIEW_TITLE ×2 —— 标题与"当前位置"两处；
 #  OVERVIEW_NO_ROUTE ×1。OVERVIEW_BACK / INTERACT_PICK / PROMPT_EXIT 走参数传递、
 #  NODE_* 走 "NODE_" + 大写拼接，均不构成 Localize 字面量），冻结基线 36 → 39。
+# 修订 #11（2026-10-22）：TASK-G M3 研发面板 +8 字面量（research_panel.gd 的
+# TECH_TITLE / TECH_START / TECH_REMAINING / TECH_RESEARCHING ×2 / TECH_NO_PARTS /
+# TECH_LOCKED / TECH_UNLOCKED；INTERACT_SLEEP / INTERACT_RESEARCH / SKIP_NIGHT_*
+# 走 InteractionZone 参数传递，不构成字面量），冻结基线 39 → 47。
 var EXPECT_KEYS: Array = [
 		"ACTION_", "ACTION_", "ACTION_", "ACTION_MOVE_RIGHT",
 		"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
@@ -113,6 +117,8 @@ var EXPECT_KEYS: Array = [
 		"MAIN_MENU_HINT", "MAIN_MENU_TITLE",
 		"NO_SUCH_KEY_XYZ",
 		"OVERVIEW_NO_ROUTE", "OVERVIEW_TITLE", "OVERVIEW_TITLE",
+		"TECH_LOCKED", "TECH_NO_PARTS", "TECH_REMAINING", "TECH_RESEARCHING",
+		"TECH_RESEARCHING", "TECH_START", "TECH_TITLE", "TECH_UNLOCKED",
 		"SETTINGS_CLOSE", "SETTINGS_KEYBIND",
 		"SETTINGS_LANG", "SETTINGS_TITLE", "SETTINGS_TITLE",
 	]
@@ -123,7 +129,10 @@ var EXPECT_KEYS: Array = [
 # 即 HUD×9 / LANG×3 / LOOP×16 / SETTINGS×4 / ACTION×10 / KEYBIND×5）。
 # 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58（+MAIN_MENU×6 / +INV×4 / +INTERACT_PICK）。
 # 修订 #10：随 TASK-G M2 总览图/超市词条更新 58 → 76（+OVERVIEW×4 / +NODE×11 /
-# +ENEMY×2 / +PROMPT_EXIT）。NODE_* 前缀拼接的 11 个键必须在表里——A3-3 比的是
+# +ENEMY×2 / +PROMPT_EXIT）。
+# 修订 #11：随 TASK-G M3 研发/睡觉词条更新 76 → 87（+TECH×7 / +SKIP_NIGHT×2 /
+# +INTERACT_SLEEP / +INTERACT_RESEARCH）。
+# NODE_* 前缀拼接的 11 个键必须在表里——A3-3 比的是
 # CSV 全集，拼接字面量不影响 A3-1，但缺键会让 A2-2 的"缺键兜底"在真实地点名上误报。
 var EXPECT_CSV_KEYS: Array = [
 	"HUD_CLOCK_DAY", "HUD_CLOCK_TIME", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
@@ -148,6 +157,9 @@ var EXPECT_CSV_KEYS: Array = [
 	"NODE_HARDWARE_STORE", "NODE_PHARMACY", "NODE_POLICE_STATION", "NODE_RESIDENTIAL",
 	"NODE_FARM", "NODE_METRO", "NODE_RADIO_TOWER",
 	"ENEMY_ZOMBIE", "ENEMY_HP", "PROMPT_EXIT",
+	"TECH_TITLE", "TECH_START", "TECH_REMAINING", "TECH_RESEARCHING",
+	"TECH_NO_PARTS", "TECH_LOCKED", "TECH_UNLOCKED",
+	"SKIP_NIGHT_DONE", "SKIP_NIGHT_FAIL", "INTERACT_SLEEP", "INTERACT_RESEARCH",
 ]
 
 func _ready() -> void:
@@ -299,8 +311,9 @@ func _run_localize_asserts() -> void:
 	# 修订 #8：随表现组 S6 键位词条更新 33 → 47（strings.csv 现 47 有效键）
 	# 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58
 	# 修订 #10：随 TASK-G M2 总览图/超市词条更新 58 → 76
-	_t("A0-4 locale table loaded (size == 76, else all value asserts are void)",
-		L._table.size() == 76)
+	# 修订 #11：随 TASK-G M3 研发/睡觉词条更新 76 → 87
+	_t("A0-4 locale table loaded (size == 87, else all value asserts are void)",
+		L._table.size() == 87)
 	if L._table.size() == 0:
 		_block(["A2-1", "A2-2", "A2-3", "A2-4", "A2-5", "A3-2", "A4-1"],
 			"blocked: locale table empty")

@@ -73,9 +73,17 @@ func _build_interactables() -> void:
 	supplies_zone.triggered.connect(_on_supplies_triggered)
 	_supplies_root.add_child(supplies_zone)
 
-	# ── 床（M3 接跳夜：has_bed 语义点；现在静默占位）──
+	# ── 床（M3：睡觉 → 次日 05:00，has_bed 语义点）──
 	var bed_root := _marker(Rect2(56, 56, 52, 30), Color(0.3, 0.4, 0.55))
-	bed_root.add_child(InteractionZone.new(&"bed", ""))
+	var bed_zone := InteractionZone.new(&"bed", "INTERACT_SLEEP")
+	bed_zone.triggered.connect(_on_bed_triggered)
+	bed_root.add_child(bed_zone)
+
+	# ── 工作台（M3：科技研发面板）──
+	var bench_root := _marker(Rect2(500, 250, 40, 22), Color(0.42, 0.38, 0.30))
+	var bench_zone := InteractionZone.new(&"workbench", "INTERACT_RESEARCH")
+	bench_zone.triggered.connect(_on_workbench_triggered)
+	bench_root.add_child(bench_zone)
 
 	# ── 大门（M2 接总览图出门）──
 	var door_root := _marker(Rect2(300, 318, 44, 14), Color(0.5, 0.25, 0.2))
@@ -132,3 +140,21 @@ func _on_door_triggered(_zone_id: StringName) -> void:
 	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
 	if router:
 		router.goto(&"overview_map")
+
+
+## 床：跳到次日 05:00（判定全在 TimeSystem：阶段A / 有床 / 在屋内）
+## 成功时世界顺带做跨日自动存档；失败只记日志（灰盒不做 toast）
+func _on_bed_triggered(_zone_id: StringName) -> void:
+	if _world == null:
+		return
+	var r := _world.skip_night(true)
+	if not bool(r.get("ok", false)):
+		Logger.log("safehouse", "skip_night_rejected", "", 0, str(r.get("reason", "")))
+		return
+	Logger.log("safehouse", "skip_night_done", "", int(r.get("day", 0)), "TASK-G M3")
+
+
+## 工作台：开研发面板（进度由 GameWorld 每 GH 分发 research_tick）
+func _on_workbench_triggered(_zone_id: StringName) -> void:
+	if _world:
+		_world.toggle_research()

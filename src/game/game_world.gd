@@ -26,10 +26,15 @@ var vitals: VitalsSystem
 var inventory: InventorySystem
 var map_sys: MapSystem
 var combat: CombatSystem
+var loop_sys: LoopSystem
+var tech_sys: TechTreeSystem
+var event_sys: EventSystem
 var hud: HudRoot
 var inv_panel: InventoryPanel
+var research_panel: ResearchPanel
 
 var _last_gh_int := -1
+var _last_saved_day := -1      # 跨日自动存档的去重锚（State 的 time.day）
 
 
 static func instance() -> GameWorld:
@@ -59,10 +64,19 @@ func start_new_game(seed_value: int = GRAYBOX_SEED) -> void:
 		return
 	Rng.setup(seed_value)
 	State.reset_for_new_game(seed_value, "normal", 1)
-	# 新局从 05:00（prep_start_gh）起步——时钟语义见 time_system（gh=当日钟点）
-	GameLoop.reset(_prep_mark_frames())
+	# 开局先把钟归零：GameLoop.reset() 是 core 给"新局/读档"的公开入口，
+	# 而网关只允许向前拨（回拨会把 day/阶段算乱），所以"从 0 起表"必须走 reset。
+	GameLoop.reset(0)
+	# 之后时钟只经网关拨——这是唯一合法写入点；未注入时 begin_new_run 明确失败
 	_install_clock_gate()
 	_instantiate_systems()
+	# 新局从 D1 05:00 阶段A PREP 起步。以前这里写 GameLoop.reset() +
+	# TimeSystem._rolled_today = true，后者是**跨包写私有静态变量**；
+	# 逻辑组已给正式入口 begin_new_run()，这里换掉（含拨钟 + 幂等锁置位）。
+	var begun := TimeSystem.begin_new_run()
+	if not bool(begun.get("ok", false)):
+		push_error("GameWorld: begin_new_run failed (%s)" % str(begun.get("reason", "")))
+	_sync_gh_mark()        # 对表不结算：05:00 是新一天的起点，不是"已经过了 5 小时"
 	_init_map_progress()
 	_mount_ui()
 
@@ -79,9 +93,12 @@ func continue_game() -> bool:
 	_install_clock_gate()
 	_instantiate_systems()
 	var t: Dictionary = run.get("time", {})
+	GameLoop.reset(0)            # 同上：先归零，再由网关拨到存档时刻
 	TimeSystem.time_restore(t)
-	GameLoop.reset(_prep_mark_frames() + int(float(t.get("gh_elapsed_today", 0.0))
-		* float(GameLoop.FRAMES_PER_GH)))
+	# 读档同样只能经网关拨钟（不碰 TimeSystem 的私有 _advance_clock_to）。
+	# 恢复的是"当天已过 GH"，所以从当日 05:00 起点加上已过小时。
+	_advance_clock_to_gh(_prep_mark_gh() + float(t.get("gh_elapsed_today", 0.0)))
+	_sync_gh_mark()
 	State.restore(run.get("state", {}))
 	# 各系统容器段经 Save.apply_persisted 分发（save_system 统一入口）
 	Save.apply_persisted(run)
@@ -102,13 +119,18 @@ func _instantiate_systems() -> void:
 	add_child(map_sys)
 	combat = CombatSystem.new()
 	add_child(combat)
+	loop_sys = LoopSystem.new()
+	add_child(loop_sys)
+	tech_sys = TechTreeSystem.new()
+	add_child(tech_sys)
+	event_sys = EventSystem.new()
+	add_child(event_sys)
+	# 零件扣减走注入式回调（包 B 禁横向持有 InventorySystem 引用，同款先例
+	# tech_tree_system.parts_gate / combat 的 EffectSink）。世界侧是唯一装配点。
+	tech_sys.parts_gate = Callable(self, "_consume_parts")
 
-	# ★ 灰盒桥（逻辑组 D-012 协作项落地前的脚手架）：
-	# time_system 的跨日幂等锁没有公开的"新局已开日"入口——新局 05:00 起步时
-	# _rolled_today=false 会让首个 tick 把 day 滚到 2。跨日拨钟（跳夜后
-	# GameLoop 推进到次日 mark）本就是逻辑组 TASK-G 配合项，这里先在
-	# 世界侧置位，逻辑组给出正式 init API 后替换本行。
-	TimeSystem._rolled_today = true
+	# 跨日幂等锁由 TimeSystem.begin_new_run() 自己置位（旧代码在这里直接写
+	# TimeSystem._rolled_today = true，属跨包写私有静态变量，已移除）。
 
 
 ## 新局地图初始态：safehouse 为家、超市可达（灰盒 1 地点，TASK-G §2）。
@@ -129,6 +151,9 @@ func _mount_ui() -> void:
 	inv_panel = InventoryPanel.new()
 	inv_panel.inventory = inventory
 	add_child(inv_panel)
+	research_panel = ResearchPanel.new()
+	research_panel.world = self
+	add_child(research_panel)
 
 
 ## ── GameLoop → 系统分发 ─────────────────────────────────────
@@ -146,8 +171,37 @@ func _on_gh_crossed(gh_mark: int) -> void:
 	_last_gh_int = gh_mark
 	if delta <= 0:
 		return
-	# M3 接线：LoopSystem.tick(delta_gh) / TechTreeSystem.research_tick(delta_gh)
-	# / EventSystem.check_scheduled(gh_now) 在回屋经营里程碑接入。
+	# ── M3 接线：每跨 1 个整 GH 的三件结算（顺序按 ResolveOrder 的语义分组）──
+	# 产线 → 研发 → 事件。三者都以 delta_gh 为单位，不读真实时间（C27）。
+	if loop_sys:
+		loop_sys.tick(float(delta))
+	if tech_sys:
+		tech_sys.research_tick(float(delta))
+	if event_sys:
+		# 事件系统会自己落盘（day_start_05_00 / event_fired）。上一局遗留的死
+		# 持久化回调会让它的 save 直接崩，所以每 GH 分发前先清一次（7 个键，成本可忽略）。
+		Save.purge_dead_persistences()
+		event_sys.check_scheduled(TimeSystem.gh_now())
+	_check_day_autosave()
+
+
+## 跨日自动存档（DoD G2/G3「走到第一次 05:00 存档」）。
+## 判据来源 = State 的 time.day（time_system 唯一写者），不开第二个"今天过了没"的口径。
+func _check_day_autosave() -> void:
+	var day := int(State.read("time.day"))
+	if day == _last_saved_day:
+		return
+	_last_saved_day = day
+	if event_sys:
+		event_sys.roll_daily(day)      # 每日随机事件槽（P17：日志有键即回放，不重掷）
+	# 夜战中不写档（R22 由 Save.save 自己拦，这里只避免白跑）
+	if bool(State.read("combat.wave_active")):
+		return
+	# 写档前清一次死引用：上一局的系统（实例 Callable）被 free 后仍挂在注册表里，
+	# `_build_payload` 会 `null::to_save` 崩 → 存档静默写不出来（实测 why=fail）。
+	Save.purge_dead_persistences()
+	var ok := Save.save("day_start_05_00")
+	Logger.log("game_world", "autosave_day_start", "", day, "ok" if ok else "fail")
 
 
 func _on_player_died(cause: String) -> void:
@@ -181,9 +235,17 @@ func _exit_tree() -> void:
 	var cur := TimeSystem.clock_advance_gate
 	if cur.is_valid() and cur.get_object() == self:
 		TimeSystem.clock_advance_gate = Callable()
+	# 本局各系统注册的存档段（inventory/map/loop/tech/events…）是**实例** Callable，
+	# 本局销毁后它们在 Save 里变成死引用 → 下一次 save 会 `null::to_save` 崩，
+	# 表现为"存档写不出来"（实测：跨日自动存档 why=fail）。
+	Save.purge_dead_persistences()
 
 
 ## 把钟拨到 target_gh（单位 GH）。只允许向前拨——回拨会把 day/阶段算乱。
+##
+## ★ 网关**只拨钟、不发 gh_crossed**。为什么：开局把钟对到 05:00 不是"过了 5 小时"，
+##   发信号会让 Vitals 立刻扣掉 5 GH 的饥饿（实测把"新局四条状态 100"打成 95 以下）。
+##   结算由调用方显式走 `_settle_gh()`：旅行 1 GH、睡一整夜 24 GH 才该结算。
 func advance_clock_to(target_gh: float) -> bool:
 	var loop := get_node_or_null("/root/GameLoop") as GameLoop
 	if loop == null:
@@ -191,13 +253,34 @@ func advance_clock_to(target_gh: float) -> bool:
 	var new_ticks := int(round(target_gh * float(GameLoop.FRAMES_PER_GH)))
 	if new_ticks < loop.elapsed_ticks:
 		return false
-	var from_gh := loop.gh_int()
 	loop.elapsed_ticks = new_ticks
+	# ⚠ 这里**不**改 _last_gh_int：改了就等于"把这段路当没走过"，
+	# 紧接着补发的 gh_crossed 会因为 delta<=0 被丢弃 → 旅行/整夜结算静默为零。
+	# 基准点由调用方决定：结算型（旅行/睡觉）走 _settle_gh_range，对表型走 _sync_gh_mark。
+	return true
+
+
+## 显式结算「真的过去了 delta_gh 小时」：补发跨过的整 GH，驱动 Vitals/Loop/Tech/Event。
+## 与网关分离是刻意的——拨钟（对齐时刻）和流逝（结算）是两件事，混在一起
+## 就会让"开局对表"吃掉 5 小时口粮。
+## 补发 (from_gh, now] 之间的整 GH。from_gh 必须由调用方在拨钟**前**取，
+## 拨钟后再取就已经是新值了（踩过：range 空 → 结算静默为零）。
+## 只对表不结算（开局/读档）：把基准点对齐到当前整数 GH，防止下一拍算出巨大的 delta。
+func _sync_gh_mark() -> void:
+	_last_gh_int = _loop_gh_int()
+	_last_saved_day = int(State.read("time.day"))
+
+
+func _settle_gh_range(from_gh: int) -> void:
+	var loop := get_node_or_null("/root/GameLoop") as GameLoop
+	if loop == null:
+		return
 	var to_gh := loop.gh_int()
+	if from_gh < 0:
+		from_gh = to_gh
 	for g in range(from_gh + 1, to_gh + 1):
 		loop.gh_crossed.emit(g)
 	_last_gh_int = to_gh
-	return true
 
 
 ## ── 出门：从总览图前往一个地点 ────────────────────────────────────
@@ -214,10 +297,12 @@ func travel_to(node_id: StringName) -> void:
 		Logger.log("game_world", "travel_no_route", str(node_id), 0, "no edge")
 		return
 	# 扣 GH：走统一时钟网关（未注入时明确失败，不静默算错）
+	var gh_from := _loop_gh_int()
 	if not TimeSystem.clock_advance_gate.is_valid() \
 			or not bool(TimeSystem.clock_advance_gate.call(TimeSystem.gh_now() + cost)):
 		Logger.log("game_world", "travel_no_clock_gate", str(node_id), cost, "C-03")
 		return
+	_settle_gh_range(gh_from)   # 路上这 1 GH 要真扣饥饿/真出产（不是时间走私）
 	Logger.log("game_world", "travel_cost", str(node_id), cost, "GH")
 	# 切场景（SceneRouter 里注册的 scene_id 与 node_id 同名）
 	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
@@ -230,12 +315,107 @@ func toggle_inventory() -> void:
 		inv_panel.toggle()
 
 
+func toggle_research() -> void:
+	if research_panel:
+		research_panel.toggle()
+
+
+## ── 零件扣减网关（TechTreeSystem.parts_gate 的实现）──────────────
+## 用「扣前扣后计数」验证，不看 consume() 的返回值——
+## consume 返回的是**状态增量**（食物/水才有），零件没有状态效果，
+## 靠返回值判成败会把"扣成功"误判成"没扣"（灰盒第一次接线就踩了）。
+func _consume_parts(cost: int) -> bool:
+	if cost <= 0:
+		return true
+	if inventory == null:
+		return false
+	var before := inventory.count_of(&"item_parts")
+	if before < cost:
+		return false
+	inventory.consume(&"item_parts", cost)
+	return inventory.count_of(&"item_parts") == before - cost
+
+
+## 开始研发：零件经 parts_gate 扣、进度由 research_tick 推。
+## 返回 {ok, reason}
+func start_research(node_key: StringName) -> Dictionary:
+	if tech_sys == null:
+		return {"ok": false, "reason": "no_system"}
+	if inventory != null and inventory.count_of(&"item_parts") 			< _node_parts_cost(node_key):
+		return {"ok": false, "reason": "no_parts"}
+	var ok := tech_sys.start_research(node_key)
+	if not ok:
+		return {"ok": false, "reason": "rejected"}
+	Logger.log("game_world", "research_started", str(node_key), 0, "TASK-G M3")
+	if research_panel:
+		research_panel.refresh()
+	return {"ok": true, "reason": "ok"}
+
+
+func _node_parts_cost(node_key: StringName) -> int:
+	var f := FileAccess.open("res://data/tech/tech_tree.json", FileAccess.READ)
+	if f == null:
+		return 0
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return 0
+	var nodes: Variant = (parsed as Dictionary).get("nodes", {})
+	if typeof(nodes) != TYPE_DICTIONARY:
+		return 0
+	var node: Variant = (nodes as Dictionary).get(str(node_key), {})
+	if typeof(node) != TYPE_DICTIONARY:
+		return 0
+	return int((node as Dictionary).get("cost_parts", 0))
+
+
+## ── 跳夜（M3 核心：睡觉 → 次日 05:00 → 自动存档 → 一天闭环）──────
+## 判定全部交给 TimeSystem（阶段A / 有床 / 在安全屋内），世界侧不复制规则。
+## 返回 TimeSystem.skip_to_next_prep() 的原样结果，另加 ui 字段给 HUD 提示。
+func skip_night(has_bed: bool) -> Dictionary:
+	if time_sys == null:
+		return {"ok": false, "reason": "no_system"}
+	if not has_bed:
+		return {"ok": false, "reason": "no_bed"}
+	if str(State.read("player.scene_id")) != "safehouse":
+		return {"ok": false, "reason": "not_home"}
+	if TimeSystem.stage != TimeSystem.Stage.A_LOOT:
+		return {"ok": false, "reason": "stage_b_no_skip"}
+	var gh_from := _loop_gh_int()
+	var r := TimeSystem.skip_to_next_prep()
+	if bool(r.get("ok", false)):
+		# 睡过的整夜要真结算（口粮/产线/研发进度），否则"睡觉免饿"就是白送的
+		_settle_gh_range(gh_from)
+		Logger.log("game_world", "skip_night", "", float(r.get("settled_gh", 0.0)),
+			"day %d" % int(r.get("day", 0)))
+		# 拨钟过程中发出的 gh_crossed 已驱动产线/研发；跨日存档在这里补一次兜底
+		_check_day_autosave()
+	return r
+
+
 ## prep_start_gh（当日起点钟点）→ 帧数。数值唯一来源 = time.json（零魔法数）。
 func _prep_mark_frames() -> int:
+	return int(round(_prep_mark_gh() * float(GameLoop.FRAMES_PER_GH)))
+
+
+## prep_start_gh（当日起点钟点）→ GH 值。数值唯一来源 = time.json（零魔法数）。
+func _prep_mark_gh() -> float:
 	var mark := 5.0
 	var f := FileAccess.open(_TIME_PATH, FileAccess.READ)
 	if f:
 		var parsed: Variant = JSON.parse_string(f.get_as_text())
 		if typeof(parsed) == TYPE_DICTIONARY:
 			mark = float((parsed as Dictionary).get("prep_start_gh", mark))
-	return int(round(mark * float(GameLoop.FRAMES_PER_GH)))
+	return mark
+
+
+func _loop_gh_int() -> int:
+	var loop := get_node_or_null("/root/GameLoop") as GameLoop
+	return loop.gh_int() if loop else 0
+
+
+## 经公开的时钟网关拨钟（不碰 TimeSystem 的私有 _advance_clock_to，
+## 也不碰 core 的 GameLoop.elapsed_ticks——那是 C27 的时间唯一真相，但只有网关可写）。
+func _advance_clock_to_gh(target_gh: float) -> bool:
+	if not TimeSystem.clock_advance_gate.is_valid():
+		return false
+	return bool(TimeSystem.clock_advance_gate.call(target_gh))
