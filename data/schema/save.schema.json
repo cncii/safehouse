@@ -60,9 +60,9 @@
 
   "random": {
     "desc": "⑧ 随机（读档强校验，不符判坏档）",
-    "global_seed": "int",
-    "day_index_of_seed": "int == time.day，不等即坏档",
-    "day_seed": "int 重算必须匹配"
+    "global_seed": "string（int64 十进制字符串——JSON 数字超 2^53 丢精度，P0 修复 2026-10-22）",
+    "day_index_of_seed": "int == time.day，不等即坏档（小整数，JSON 数字往返精确）",
+    "day_seed": "string（int64 十进制字符串；读档 String.to_int() 精确还原；旧档 float 形态必失真 → 判坏档走 .bak）"
   },
 
   "ui_hints": {

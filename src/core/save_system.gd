@@ -102,7 +102,16 @@ func _verify_seed(raw: Dictionary) -> bool:
 	var t: Dictionary = raw.get("time", {})
 	if int(rnd.get("day_index_of_seed", -1)) != int(t.get("day", -2)):
 		return false
-	return Rng.verify_day(int(t.get("day", 0)), int(rnd.get("day_seed", 0)))
+	# P0 修复（2026-10-22）：day_seed 存的是**十进制字符串**（String.to_int() 对 64 位
+	# 精确）。兼容历史形态：int 旧档直接比较；float 旧档必失真 → 校验失败走 .bak，
+	# 与修复前行为一致（失真值本来就不可信）。
+	var day := int(t.get("day", 0))
+	var stored: Variant = rnd.get("day_seed", null)
+	if stored is String:
+		return Rng.verify_day(day, (stored as String).to_int())
+	if stored is float:
+		push_warning("load: day_seed stored as float (pre-P0-fix save) - seed check will fail by design")
+	return Rng.verify_day(day, int(stored))
 
 ## ── 内部 ──
 ## ── 持久化注册（D-009 修复：to_save/from_save 挂接点）──
@@ -129,6 +138,20 @@ func apply_persisted(snapshot: Dictionary) -> void:
 		else:
 			push_warning("save: missing section '%s' (new field? run migration chain)" % key)
 
+## 清理失效的持久化注册（Callable 绑定的实例已释放）。正常游戏系统永不释放，
+## 此调用无副作用；测试环境里测试域 queue_free 实例后注册表会残留死 Callable，
+## save 前调用避免 null::to_save 崩溃（2026-10-22 SAVE 域门禁实测暴露）。
+func purge_dead_persistences() -> int:
+	var removed := 0
+	for key: String in _persistences.keys():
+		var to_save: Callable = _persistences[key]["to_save"]
+		if not to_save.is_valid():
+			_persistences.erase(key)
+			removed += 1
+	if removed > 0:
+		Logger.log("save", "purge_dead_persistences", "", removed, "dead callables removed before save")
+	return removed
+
 func _build_payload(reason: String) -> Dictionary:
 	# 各系统的 to_save() 在此组装；骨架期给出最小结构（QA S16 要求
 	# save_reason ∈ {day_start_05_00, manual_exit, event_fired, death, night_cleared}）
@@ -138,13 +161,23 @@ func _build_payload(reason: String) -> Dictionary:
 		"saved_at_utc": Time.get_datetime_string_from_system(true),
 		"time": {"day": 1, "stage": "A", "phase": "PREP", "night_index": 0,
 			"gh_elapsed_today": 0.0, "mode": "REALTIME"},
-		"random": {"global_seed": Rng._global_seed, "day_index_of_seed": 1,
-			"day_seed": Rng.day_seed(1)},
 		"player": State.snapshot(),
 	}
-	# 各系统注册的持久化段（D-009 挂接点）：inventory/tech/facilities/map/events 由包 B/C 落
+	# 各系统注册的持久化段（D-009 挂接点）：inventory/tech/facilities/map/events/time 由包 B/C 落
+	# ⚠ time 段会被 time_system 的注册 to_save 覆盖为真实日程——所以 random 段
+	#   必须在本循环**之后**按最终 day 生成（第二层 P0：random 与 time 不同源
+	#   对齐 → day_index != time.day → 读档必判坏档，2026-10-22 门禁实测暴露）。
 	for key: String in _persistences:
 		payload[key] = (_persistences[key]["to_save"] as Callable).call()
+	var run_day := int((payload["time"] as Dictionary).get("day", 1))
+	# P0 修复（2026-10-22）：seed 一律存**十进制字符串**。Godot JSON.parse_string
+	# 对超出 2^53 的数字必转 float 丢精度（day_seed 8/8 天全部超出），
+	# 字符串往返无损，读档 String.to_int() 精确还原。day_index_of_seed 是 1..15
+	# 的小整数，JSON 数字往返精确，保持 int。
+	payload["random"] = {
+		"global_seed": str(Rng._global_seed),
+		"day_index_of_seed": run_day,
+		"day_seed": str(Rng.day_seed(run_day))}
 	payload["integrity"] = {"engine_version": Engine.get_version_info()["string"],
 		"content_version": ProjectSettings.get_setting("application/config/version", "0.1.0")}
 	return payload

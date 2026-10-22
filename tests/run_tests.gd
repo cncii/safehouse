@@ -56,6 +56,7 @@ const InventoryTests = preload("res://tests/test_inventory.gd")
 const TechRuntimeTests = preload("res://tests/test_tech_runtime.gd")
 const MapLootTests = preload("res://tests/test_map_loot.gd")
 const TimePersistTests = preload("res://tests/test_time_persist.gd")
+const SaveSeedTests = preload("res://tests/test_save_seed.gd")
 
 # 空跑/截断判负门檻：本文件在无变异、无运行时截断时应产出的断言总数。
 # 修订 #1：vitals 段 8 条（M2 死钟/M2b/M3/M3b/M4×4）随场景方式修通，75 → 83。
@@ -68,7 +69,7 @@ const TimePersistTests = preload("res://tests/test_time_persist.gd")
 # 修订 #7：loop_system 修复（924b0f6）LOOP-0 复活 121→122；M20 移植（test_action 7 条）
 #          + 破防顺序无关判据 1 条 → 122 → 130；A 组冻结基线随 UI 文案更新（16/17→25/33）。
 # 任何"少跑了"的情况都必须在这里吵出来，而不是让 coverage 行照常打印。
-const MIN_ASSERTS := 130
+const MIN_ASSERTS := 135
 
 # A1 扫描用的针。刻意用拼接写出来：本文件自身也携带这些针（自测夹具里有），
 # 若写成整串，扫描 tests/ 时会自命中。tests/ 已排除，但拼接是双保险。
@@ -205,6 +206,8 @@ func _ready() -> void:
 	# MapLootTests.run(self)
 	# ── 时间存档一致性（C-01 的直接判据，M7/M8/P7 的时间侧）──
 	TimePersistTests.run(self)
+	# ── seed 存档往返精度（P0 回归门禁，2026-10-22 修复后转常规）──
+	SaveSeedTests.run(self)
 
 	_finish()
 
@@ -882,7 +885,7 @@ func _record(name: String, ok: bool) -> void:
 		_groups[key]["f"] += 1
 
 func _finish() -> void:
-	print("--- gate run: %d pass / %d fail ---" % [_pass, _pass + _fail])
+	print("--- gate run: %d pass / %d fail ---" % [_pass, _fail])
 	# 空跑 / 截断判负：GDScript 的运行时报错只截断它所在的那个函数，调用方继续跑，
 	# 于是"少跑了十几条断言"这件事在 exit code 和 coverage 行上都看不出来。
 	# 实测（变异体 6）就是这么静默吞掉 17 条的。这里把门檻钉死，让它必须吵出来。
