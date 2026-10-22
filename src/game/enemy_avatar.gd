@@ -17,6 +17,8 @@ var move_speed_px: float = 55.0
 var attack_cooldown_frames: int = 45       # ≈0.75s 攻击间隔
 var attack_range_px: float = 18.0           # 近战攻击距离
 
+signal died   # 场景/世界层消费（波次记账、掉落、清场）
+
 var _player: PlayerAvatar = null
 var _combat: CombatSystem = null
 var _attack_timer := 0
@@ -163,7 +165,8 @@ func _die() -> void:
 	_body.modulate = Color(0.3, 0.3, 0.35)
 	_hp_bar.visible = false
 	Logger.log("enemy_avatar", "zombie_killed", "", 0, "TASK-G M2")
-	# 场景侧负责在 2 秒后 queue_free（或由场景监听 dead 信号）
+	died.emit()
+	# 视觉上留个尸体色块，逻辑上立刻退出战斗（波次记账由监听方做）
 
 
 func _find_player() -> PlayerAvatar:

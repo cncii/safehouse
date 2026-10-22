@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _test_m2_world()
 	await _test_m3_world()
 	await _test_m4_world()
+	await _test_m5_world()
 	_finish()
 
 # ── 本地化链路 ──
@@ -650,6 +651,56 @@ func _test_m4_world() -> void:
 	var sig_b := world.map_sys.world_signature(TimeSystem.day, PackedStringArray(["supermarket"]))
 	_t("m4: same day restart reproduces identical world signature (M9)",
 		sig_a == sig_b and sig_a.length() > 0)
+
+	world.free()
+
+
+## ── M5：D7 20:00 门锁 → 过渡夜 → 阶段B 波次 → 通关画面 ────────────
+## 期望值写死：阶段A 7 天 / 宵禁 20:00 / 夜战 18:00 / 7 夜（time.json 定稿）。
+## 时钟用公开网关拨，天数是测试脚手架直接置位（生产里只有 time_system 改它）。
+func _test_m5_world() -> void:
+	var world := GameWorld.new()
+	get_tree().root.add_child(world)
+	await get_tree().process_frame
+	world.start_new_game(5)
+
+	_t("m5: victory screen mounted by world", world.victory_screen != null)
+
+	# ── ① D6 20:00 还没到切换点：不许提前进阶段B ──
+	world._advance_clock_to_gh(5 * 24.0 + 20.0)     # D6 20:00
+	TimeSystem.day = 6
+	world._check_stage_transition()
+	_t("m5: no stage-B switch before day 7",
+		TimeSystem.stage == TimeSystem.Stage.A_LOOT)
+
+	# ── ② D7 20:00 门锁那一刻：进过渡夜并落到阶段B ──
+	world._advance_clock_to_gh(6 * 24.0 + 20.0)     # D7 20:00
+	TimeSystem.day = 7
+	world._check_stage_transition()
+	_t("m5: D7 20:00 switches to stage B", TimeSystem.stage == TimeSystem.Stage.B_SIEGE)
+	_t("m5: stage B starts at day 8 night 1",
+		TimeSystem.day == 8 and TimeSystem.night_index == 1)
+	_t("m5: transition night is over (not stuck in TRANSITION_NIGHT)",
+		not TimeSystem.is_transition_night())
+
+	# ── ③ 阶段B 18:00 开夜战：波次必须真的开起来 ──
+	world._advance_clock_to_gh(7 * 24.0 + 18.0)     # D8 18:00
+	world._check_night_wave()
+	_t("m5: night wave starts at 18:00", world.combat.wave_active)
+	_t("m5: wave plan is non-empty (a night actually has enemies)",
+		world.combat.plan_total() > 0)
+
+	# ── ④ 越到夜数之外：不再开新夜，直接出通关画面 ──
+	TimeSystem.night_index = 8                      # 测试脚手架：夜 7 已打完
+	world.combat.wave_active = false
+	world._check_night_wave()
+	_t("m5: after the last night the victory screen appears",
+		world.victory_screen.visible)
+	_t("m5: victory pauses the clock",
+		GameLoop._suspended)
+	world.victory_screen.back_to_menu()
+	_t("m5: leaving victory hides it and resumes the clock",
+		not world.victory_screen.visible and not GameLoop._suspended)
 
 	world.free()
 

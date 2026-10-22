@@ -158,3 +158,37 @@ func _on_bed_triggered(_zone_id: StringName) -> void:
 func _on_workbench_triggered(_zone_id: StringName) -> void:
 	if _world:
 		_world.toggle_research()
+
+
+## ── 夜间波次：把世界层生成好的敌人清单落到场景里（M5）────────────
+## 分工刻意分开：世界层只决定"这一夜出哪些敌人"（plan 物化 + SpawnService 消费），
+## 场景只决定"摆哪、怎么死"，两边不认识对方的规则。
+func spawn_wave(spawned: Array) -> int:
+	var n := 0
+	var cols := 6
+	for i in spawned.size():
+		var e: Dictionary = spawned[i]
+		var z := EnemyAvatar.new()
+		z.position = Vector2(90 + (i % cols) * 100, 80 + (i / cols) * 60)
+		z.hp = float(e.get("hp", z.hp))
+		z.damage = float(e.get("damage", z.damage))
+		z.name = "WaveEnemy_%d" % i
+		z.died.connect(_on_enemy_died.bind(z))
+		add_child(z)
+		n += 1
+	Logger.log("safehouse", "wave_spawned", "", n, "TASK-G M5")
+	return n
+
+
+func _on_enemy_died(z: EnemyAvatar) -> void:
+	if _world:
+		_world.on_enemy_killed(z)
+
+
+## 场景里还活着的敌人（清场判据与 HUD 提示用）
+func alive_enemies() -> Array:
+	var out: Array = []
+	for c in get_children():
+		if c is EnemyAvatar and not (c as EnemyAvatar).is_dead():
+			out.append(c)
+	return out

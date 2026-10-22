@@ -33,6 +33,8 @@ var hud: HudRoot
 var inv_panel: InventoryPanel
 var research_panel: ResearchPanel
 var death_screen: DeathScreen
+var victory_screen: VictoryScreen
+var spawner: SpawnService
 
 var _last_gh_int := -1
 var _last_saved_day := -1      # 跨日自动存档的去重锚（State 的 time.day）
@@ -130,6 +132,8 @@ func _instantiate_systems() -> void:
 	add_child(tech_sys)
 	event_sys = EventSystem.new()
 	add_child(event_sys)
+	spawner = SpawnService.new()
+	add_child(spawner)
 	# 零件扣减走注入式回调（包 B 禁横向持有 InventorySystem 引用，同款先例
 	# tech_tree_system.parts_gate / combat 的 EffectSink）。世界侧是唯一装配点。
 	tech_sys.parts_gate = Callable(self, "_consume_parts")
@@ -162,6 +166,8 @@ func _mount_ui() -> void:
 	death_screen = DeathScreen.new()
 	death_screen.world = self
 	add_child(death_screen)
+	victory_screen = VictoryScreen.new()
+	add_child(victory_screen)
 
 
 ## ── GameLoop → 系统分发 ─────────────────────────────────────
@@ -191,6 +197,8 @@ func _on_gh_crossed(gh_mark: int) -> void:
 		Save.purge_dead_persistences()
 		event_sys.check_scheduled(TimeSystem.gh_now())
 	_check_day_autosave()
+	_check_stage_transition()
+	_check_night_wave()
 
 
 ## 跨日自动存档（DoD G2/G3「走到第一次 05:00 存档」）。
@@ -254,6 +262,32 @@ func restart_from_day_start() -> bool:
 		"day-start autosave restored")
 	_goto_home()
 	return true
+
+
+## ── M5：阶段 A → B 的切换点（D7 20:00 门锁，架构 §11.1）──────────
+## 切换点唯一：只在"阶段A 且到了 D7 且已过宵禁"这一刻触发，
+## 不做"每天 20:00 都试一次"的轮询式判断——那会掩盖 day 判定的 bug。
+func _check_stage_transition() -> void:
+	if TimeSystem.stage != TimeSystem.Stage.A_LOOT:
+		return
+	# 天数/宵禁都从 time.json 读（数值唯一来源），不用 TimeSystem 的私有静态
+	if TimeSystem.day < int(_time_cfg("days_stage_a_count", 7)):
+		return
+	if fmod(TimeSystem.gh_now(), 24.0) < float(_time_cfg("curfew_gh", 20.0)):
+		return
+	if TimeSystem.is_transition_night():
+		return
+	var began := TimeSystem.begin_transition_night()
+	if not bool(began.get("ok", false)):
+		Logger.log("game_world", "transition_rejected", "", 0, str(began.get("reason", "")))
+		return
+	# 过渡夜是"整段跳"：按 settle_gh 一次性结算，再落阶段B
+	var gh_from := _loop_gh_int()
+	var fin := TimeSystem.finish_transition_night()
+	if bool(fin.get("ok", false)):
+		_settle_gh_range(gh_from)
+		Logger.log("game_world", "stage_b_entered", "", int(fin.get("day", 0)),
+			"night %d" % int(fin.get("night_index", 0)))
 
 
 func _goto_home() -> void:
@@ -449,6 +483,17 @@ func _prep_mark_frames() -> int:
 	return int(round(_prep_mark_gh() * float(GameLoop.FRAMES_PER_GH)))
 
 
+## time.json 单项读取（数值唯一来源；缺键回退到传入的默认值，不硬写常量在调用点）。
+func _time_cfg(key: String, fallback: Variant) -> Variant:
+	var f := FileAccess.open(_TIME_PATH, FileAccess.READ)
+	if f == null:
+		return fallback
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return fallback
+	return (parsed as Dictionary).get(key, fallback)
+
+
 ## prep_start_gh（当日起点钟点）→ GH 值。数值唯一来源 = time.json（零魔法数）。
 func _prep_mark_gh() -> float:
 	var mark := 5.0
@@ -480,3 +525,60 @@ func _advance_clock_to_gh(target_gh: float) -> bool:
 	if not TimeSystem.clock_advance_gate.is_valid():
 		return false
 	return bool(TimeSystem.clock_advance_gate.call(target_gh))
+
+
+## ── M5：阶段 B 夜间波次 ────────────────────────────────────────
+## 触发点 = 阶段B 的 18:00。波次必须 WAVE_DRIVEN（击杀推进 + 8 分钟兜底都在
+## TimeSystem 里），世界侧只负责"开波 + 把敌人摆进场景"。
+func _check_night_wave() -> void:
+	if TimeSystem.stage != TimeSystem.Stage.B_SIEGE:
+		return
+	if combat == null or combat.wave_active:
+		return
+	var night := TimeSystem.night_index
+	if night < 1:
+		return
+	# 最后一夜打完就通关，不再开下一夜（夜数从 time.json 读）
+	if night > int(_time_cfg("nights_stage_b_count", 7)):
+		_check_victory()
+		return
+	if fmod(TimeSystem.gh_now(), 24.0) < float(_time_cfg("outing_end_gh", 18.0)):
+		return
+	var plan := combat.begin_wave(night)
+	var spawned: Array = []
+	if spawner:
+		spawned = spawner.spawn_from_plan(plan, int(State.read("time.day")))
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("spawn_wave"):
+		scene.spawn_wave(spawned)
+	Logger.log("game_world", "wave_started", "", night, "spawned %d" % spawned.size())
+
+
+## 敌人死亡：先记账（CombatSystem 的批次/池），再看这一夜是否清场。
+func on_enemy_killed(z: EnemyAvatar) -> void:
+	if combat == null:
+		return
+	combat.on_enemy_killed()
+	var scene := get_tree().current_scene
+	var alive := 0
+	if scene != null and scene.has_method("alive_enemies"):
+		alive = (scene.alive_enemies() as Array).size()
+	if spawner:
+		var refilled: Array = spawner.release(alive)
+		if not refilled.is_empty() and scene != null and scene.has_method("spawn_wave"):
+			scene.spawn_wave(refilled)
+	if z != null and is_instance_valid(z):
+		z.queue_free()
+	if combat.is_wave_cleared():
+		var result := combat.settle_night()
+		Logger.log("game_world", "night_settled", String(result), TimeSystem.night_index, "")
+		if String(result) == "night_clear" \
+				and TimeSystem.night_index >= int(_time_cfg("nights_stage_b_count", 7)):
+			_check_victory()
+
+
+## 通关：最后一夜清场。任务书 §2 明确"夜 7 天亮即算通关，结局画面一行字"。
+func _check_victory() -> void:
+	if victory_screen and not victory_screen.visible:
+		victory_screen.show_victory()
+		Logger.log("game_world", "victory", "", TimeSystem.night_index, "TASK-G M5")
