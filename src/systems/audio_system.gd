@@ -60,6 +60,10 @@ func _exit_tree() -> void:
 	if _sub_handle >= 0:
 		State.unsubscribe(_sub_handle)
 		_sub_handle = -1
+	# W2 块3 的库存预警是第二个订阅句柄，退订时容易只退第一个（实测漏了这一个）
+	if _stock_sub_handle >= 0:
+		State.unsubscribe(_stock_sub_handle)
+		_stock_sub_handle = -1
 	if _stock_sub_handle >= 0:
 		State.unsubscribe(_stock_sub_handle)
 		_stock_sub_handle = -1

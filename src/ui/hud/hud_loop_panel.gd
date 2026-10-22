@@ -57,13 +57,24 @@ static func warn_thresholds() -> Dictionary:
 	return _s_thresholds
 
 
+var _loop_sub := -1
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_warn_thresholds = warn_thresholds()
 	_build()
 	_refresh()
 	# loop 段由 LoopSystem._write_store 写入（建成/升级/停机最终都会反映到这里）
-	State.subscribe(&"loop", _on_loop_changed)
+	_loop_sub = State.subscribe(&"loop", _on_loop_changed)
+
+
+## 退树时必须退订：State 的订阅表是全局的，HUD 被 free 后回调仍会指向死对象，
+## 之后每次 loop 段写入都会刷一排 `null::_on_loop_changed`（实测 50 条噪音），
+## 且真正的错误会被淹掉。
+func _exit_tree() -> void:
+	if _loop_sub >= 0:
+		State.unsubscribe(_loop_sub)
+		_loop_sub = -1
 
 
 func _on_loop_changed(_source: StringName, _reason: String) -> void:

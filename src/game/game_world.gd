@@ -32,6 +32,7 @@ var event_sys: EventSystem
 var hud: HudRoot
 var inv_panel: InventoryPanel
 var research_panel: ResearchPanel
+var death_screen: DeathScreen
 
 var _last_gh_int := -1
 var _last_saved_day := -1      # 跨日自动存档的去重锚（State 的 time.day）
@@ -97,9 +98,9 @@ func continue_game() -> bool:
 	TimeSystem.time_restore(t)
 	# 读档同样只能经网关拨钟（不碰 TimeSystem 的私有 _advance_clock_to）。
 	# 恢复的是"当天已过 GH"，所以从当日 05:00 起点加上已过小时。
-	_advance_clock_to_gh(_prep_mark_gh() + float(t.get("gh_elapsed_today", 0.0)))
+	_advance_clock_to_gh(_saved_absolute_gh(t))
 	_sync_gh_mark()
-	State.restore(run.get("state", {}))
+	State.restore(run.get("player", {}))
 	# 各系统容器段经 Save.apply_persisted 分发（save_system 统一入口）
 	Save.apply_persisted(run)
 	_init_map_progress()
@@ -108,6 +109,10 @@ func continue_game() -> bool:
 
 
 func _instantiate_systems() -> void:
+	# 先清死引用再注册：上一局（回主菜单再开一局）的系统实例 Callable 还挂在
+	# Save 注册表里，`register_persistence` 遇重复 key 会 assert，新系统就注册不上
+	# → 读档少段、自动存档写不出来（实测 duplicate persistence key: inventory/tech）。
+	Save.purge_dead_persistences()
 	time_sys = TimeSystem.new()
 	add_child(time_sys)
 	vitals = VitalsSystem.new()
@@ -154,6 +159,9 @@ func _mount_ui() -> void:
 	research_panel = ResearchPanel.new()
 	research_panel.world = self
 	add_child(research_panel)
+	death_screen = DeathScreen.new()
+	death_screen.world = self
+	add_child(death_screen)
 
 
 ## ── GameLoop → 系统分发 ─────────────────────────────────────
@@ -204,10 +212,54 @@ func _check_day_autosave() -> void:
 	Logger.log("game_world", "autosave_day_start", "", day, "ok" if ok else "fail")
 
 
+## ── 死亡（M4）──────────────────────────────────────────────────
+## 死因字符串由 VitalsSystem 按 ResolveOrder.DAMAGE_SOURCE_ORDER 归因，
+## 世界侧只负责「停表 + 出画面」，不敢自己编死因。
 func _on_player_died(cause: String) -> void:
-	# M4 接线：死亡 → 当日清晨重开（同种子同日内容一致，M9 实机复跑）。
-	# M1 先记日志：灰盒第一天饿死也是有效观测（硬约束 3：自动配给不许抢先存在）。
 	Logger.log("game_world", "player_died", "", 0, cause)
+	if death_screen:
+		death_screen.show_death(cause)
+
+
+## ── 死亡重开：回到**当日清晨的存档**（架构 §5.4）─────────────────
+## 为什么不是"把钟拨回去"：单纯拨钟不还原状态（口粮还是 0、背包还是空的），
+## 重开即再死。走当日清晨的自动存档快照才是设计口径，也顺带满足
+## M9「同种子同日内容一致」——同一天的地图/掉落由 (种子, day) 纯函数决定。
+func restart_from_day_start() -> bool:
+	var run := Save.load_run()
+	if run.is_empty():
+		# 当天还没落过盘（开局当刻就死）：退化到系统级同日重开 + 把状态补满，
+		# 不静默什么都不做——否则玩家会卡在尸体上。
+		var r0 := TimeSystem.restart_same_day()
+		# 复位四条状态只能走有写入权限的系统（player.hp/stamina 的 writers 白名单里
+		# 没有 game_world）。CombatSystem 提供了公开的调试复位口，正好够用。
+		if combat:
+			combat.debug_reset_vitals()
+		_sync_gh_mark()
+		Logger.log("game_world", "restart_no_save", "", 0,
+			"ok" if bool(r0.get("ok", false)) else str(r0.get("reason", "")))
+		_goto_home()
+		return bool(r0.get("ok", false))
+
+	var t: Dictionary = run.get("time", {})
+	TimeSystem.time_restore(t)
+	GameLoop.reset(0)
+	_advance_clock_to_gh(_saved_absolute_gh(t))
+	State.restore(run.get("player", {}))
+	Save.apply_persisted(run)
+	if combat:
+		combat.debug_reset_combat()
+	_sync_gh_mark()
+	Logger.log("game_world", "restart_from_day_start", "", int(t.get("day", 0)),
+		"day-start autosave restored")
+	_goto_home()
+	return true
+
+
+func _goto_home() -> void:
+	var router := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
+	if router:
+		router.goto(&"safehouse")
 
 
 ## ── 拨钟（唯一时钟写入点）────────────────────────────────────────
@@ -411,6 +463,15 @@ func _prep_mark_gh() -> float:
 func _loop_gh_int() -> int:
 	var loop := get_node_or_null("/root/GameLoop") as GameLoop
 	return loop.gh_int() if loop else 0
+
+
+## 存档里的时间字段是**累计 GH**（time_system.to_save_time 写的是 gh_now()，
+## 字段名叫 gh_elapsed_today 但值不是"当天已过"）——直接当偏移再加起钟点会
+## 多加 5 GH（实测 D1 05:00 读回变成 10:00）。这里按绝对 GH 处理，缺字段才退回起钟点。
+func _saved_absolute_gh(t: Dictionary) -> float:
+	if not t.has("gh_elapsed_today"):
+		return _prep_mark_gh()
+	return float(t.get("gh_elapsed_today", _prep_mark_gh()))
 
 
 ## 经公开的时钟网关拨钟（不碰 TimeSystem 的私有 _advance_clock_to，

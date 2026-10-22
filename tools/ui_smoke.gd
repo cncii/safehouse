@@ -31,6 +31,7 @@ func _ready() -> void:
 	await _test_m1_world()
 	await _test_m2_world()
 	await _test_m3_world()
+	await _test_m4_world()
 	_finish()
 
 # ── 本地化链路 ──
@@ -577,6 +578,78 @@ func _test_m3_world() -> void:
 	_t("m3: day-start autosave written and loadable", not run.is_empty())
 	_t("m3: autosave carries the rolled-over day",
 		int((run.get("time", {}) as Dictionary).get("day", -1)) == TimeSystem.day)
+
+	world.free()
+
+
+## ── M4：死亡 → 当日清晨重开（同种子同日内容一致）────────────────────
+## 期望值独立写死：新局 hp=100、死因枚举 5 种、未知回退 UNKNOWN。
+func _test_m4_world() -> void:
+	var world := GameWorld.new()
+	get_tree().root.add_child(world)
+	await get_tree().process_frame
+	world.start_new_game(11)
+
+	# ── ① 死因枚举 → 词条映射：5 种已知 + 未知兜底，**不许把英文枚举漏给玩家** ──
+	var known := ["starvation", "dehydration", "bleed", "bite", "wild_sleep"]
+	var mapped_ok := true
+	for c: String in known:
+		var k: String = DeathScreen.cause_key(c)
+		if not k.begins_with("DEATH_CAUSE_"):
+			mapped_ok = false
+		if Localize.text(k) == k:      # 词条缺失会回退成 key 本身
+			mapped_ok = false
+	var unknown_key: String = DeathScreen.cause_key("no_such_cause")
+	_t("m4: 5 damage causes map to locale keys", mapped_ok)
+	_t("m4: unknown cause falls back to UNKNOWN (no raw enum leak)",
+		unknown_key == "DEATH_CAUSE_UNKNOWN"
+		and Localize.text(unknown_key) != unknown_key)
+
+	# ── ② 当日清晨存档（05:00 满血快照）——必须在死之前落盘 ──
+	Save.purge_dead_persistences()      # 前面几局 world 被 free 后留下的死引用
+	var saved: bool = Save.save("day_start_05_00")
+	_t("m4: day-start save written before the lethal hit", saved)
+
+	# ── ③ 真死一次：hp 归零 → on_frames 检出 → 画面出现 + 停表 ──
+	_t("m4: death screen mounted by world", world.death_screen != null)
+	world.combat.on_hit_received(999.0)
+	world.vitals.on_frames(1)
+	_t("m4: lethal hit actually zeroes hp", float(State.read("player.hp")) <= 0.0)
+	_t("m4: death screen becomes visible on death",
+		world.death_screen.visible)
+	_t("m4: simulation is suspended while dead (no more hunger drain)",
+		GameLoop._suspended)
+
+	# ── ④ 重开：回当日清晨 ──
+	var day_at_death := TimeSystem.day
+	world.death_screen.restart()
+	# 重开会走一次场景切换，切场景期间 GameLoop 本来就停表——要等切换结束再断言
+	var r4 := get_tree().root.get_node_or_null("SceneRouter") as SceneRouter
+	if r4 != null:
+		for i in 900:
+			await get_tree().process_frame
+			if not r4.is_transitioning():
+				break
+	else:
+		await get_tree().process_frame
+	_t("m4: restart hides the death screen", not world.death_screen.visible)
+	# 状态必须被快照还原：hp 回到 100（快照是清晨 05:00 的，那时满血）
+	_t("m4: restart restores hp from the day-start snapshot",
+		is_equal_approx(float(State.read("player.hp")), 100.0))
+	_t("m4: restart keeps the same calendar day", TimeSystem.day == day_at_death)
+	_t("m4: restart rewinds the clock to the day start (elapsed_today=0)",
+		is_equal_approx(TimeSystem.gh_elapsed_today(), 0.0))
+	_t("m4: clock resumes once the restart transition settles",
+		not GameLoop._suspended)
+
+	# ── ④ 同种子同日内容一致（G4 的可自动半边）──
+	# 期望：同一天重开两次，超市布局签名逐字节相同。
+	var sig_a := world.map_sys.world_signature(TimeSystem.day, PackedStringArray(["supermarket"]))
+	world.death_screen.show_death("starvation")
+	world.death_screen.restart()
+	var sig_b := world.map_sys.world_signature(TimeSystem.day, PackedStringArray(["supermarket"]))
+	_t("m4: same day restart reproduces identical world signature (M9)",
+		sig_a == sig_b and sig_a.length() > 0)
 
 	world.free()
 

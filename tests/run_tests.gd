@@ -105,6 +105,9 @@ var RE_KEY := "Localize\\.(?:text|textf)\\(\\s*\"([^\"]*)\""
 # TECH_TITLE / TECH_START / TECH_REMAINING / TECH_RESEARCHING ×2 / TECH_NO_PARTS /
 # TECH_LOCKED / TECH_UNLOCKED；INTERACT_SLEEP / INTERACT_RESEARCH / SKIP_NIGHT_*
 # 走 InteractionZone 参数传递，不构成字面量），冻结基线 39 → 47。
+# 修订 #12（2026-10-22）：TASK-G M4 死亡画面 +2 字面量（death_screen.gd 的
+# DEATH_TITLE / DEATH_RESTART；DEATH_CAUSE_* 由 cause_key() 枚举映射返回，
+# 不构成 Localize 字面量），冻结基线 47 → 49。
 var EXPECT_KEYS: Array = [
 		"ACTION_", "ACTION_", "ACTION_", "ACTION_MOVE_RIGHT",
 		"HUD_CLOCK_DAY", "HUD_STAGE_A_LOOT", "HUD_STAGE_B_SIEGE",
@@ -117,6 +120,7 @@ var EXPECT_KEYS: Array = [
 		"MAIN_MENU_HINT", "MAIN_MENU_TITLE",
 		"NO_SUCH_KEY_XYZ",
 		"OVERVIEW_NO_ROUTE", "OVERVIEW_TITLE", "OVERVIEW_TITLE",
+		"DEATH_RESTART", "DEATH_TITLE",
 		"TECH_LOCKED", "TECH_NO_PARTS", "TECH_REMAINING", "TECH_RESEARCHING",
 		"TECH_RESEARCHING", "TECH_START", "TECH_TITLE", "TECH_UNLOCKED",
 		"SETTINGS_CLOSE", "SETTINGS_KEYBIND",
@@ -132,6 +136,7 @@ var EXPECT_KEYS: Array = [
 # +ENEMY×2 / +PROMPT_EXIT）。
 # 修订 #11：随 TASK-G M3 研发/睡觉词条更新 76 → 87（+TECH×7 / +SKIP_NIGHT×2 /
 # +INTERACT_SLEEP / +INTERACT_RESEARCH）。
+# 修订 #12：随 TASK-G M4 死亡画面词条更新 87 → 95（+DEATH×8）。
 # NODE_* 前缀拼接的 11 个键必须在表里——A3-3 比的是
 # CSV 全集，拼接字面量不影响 A3-1，但缺键会让 A2-2 的"缺键兜底"在真实地点名上误报。
 var EXPECT_CSV_KEYS: Array = [
@@ -160,6 +165,8 @@ var EXPECT_CSV_KEYS: Array = [
 	"TECH_TITLE", "TECH_START", "TECH_REMAINING", "TECH_RESEARCHING",
 	"TECH_NO_PARTS", "TECH_LOCKED", "TECH_UNLOCKED",
 	"SKIP_NIGHT_DONE", "SKIP_NIGHT_FAIL", "INTERACT_SLEEP", "INTERACT_RESEARCH",
+	"DEATH_TITLE", "DEATH_RESTART", "DEATH_CAUSE_STARVATION", "DEATH_CAUSE_DEHYDRATION",
+	"DEATH_CAUSE_BLEED", "DEATH_CAUSE_BITE", "DEATH_CAUSE_WILD_SLEEP", "DEATH_CAUSE_UNKNOWN",
 ]
 
 func _ready() -> void:
@@ -312,8 +319,9 @@ func _run_localize_asserts() -> void:
 	# 修订 #9：随 TASK-G M1 主菜单/背包/交互词条更新 47 → 58
 	# 修订 #10：随 TASK-G M2 总览图/超市词条更新 58 → 76
 	# 修订 #11：随 TASK-G M3 研发/睡觉词条更新 76 → 87
-	_t("A0-4 locale table loaded (size == 87, else all value asserts are void)",
-		L._table.size() == 87)
+	# 修订 #12：随 TASK-G M4 死亡画面词条更新 87 → 95
+	_t("A0-4 locale table loaded (size == 95, else all value asserts are void)",
+		L._table.size() == 95)
 	if L._table.size() == 0:
 		_block(["A2-1", "A2-2", "A2-3", "A2-4", "A2-5", "A3-2", "A4-1"],
 			"blocked: locale table empty")
