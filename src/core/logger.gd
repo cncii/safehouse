@@ -3,6 +3,9 @@ extends Node
 ##
 ## 只允许 5 类字段：{system, event_id, path, delta, reason}
 ## 禁止输出：globalize_path() 结果、绝对路径、SteamID、MAC、主机名、用户名。
+## 例外（S10 残余）：Godot 引擎在脚本 Parse Error / 加载失败时，会把脚本绝对路径（含 Windows 用户名）
+##   写入 user://logs/。该输出来自引擎，不在本项目代码可控范围，不计入我方 PII 泄漏。
+##   缓解：A. 本例外已写入契约（架构 §6.3 / docs/S10_合规说明.md）；B. 导出前清空 logs 目录（tools/export.ps1）。
 ## 日志量门禁：≤ 50 MB/局（QA S11），debug 模式下重复 message > 1000 次自动降采样。
 
 const MAX_PER_FRAME := 64
