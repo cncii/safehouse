@@ -27,6 +27,10 @@
 shader_type canvas_item;
 render_mode blend_mix, unshaded;
 
+// 总开关：true = 启用统一色板映射；false = 直接输出原图（不做任何改动，验收对比用）。
+// 这是任务书对 deliverable 1 的硬性要求：必须能一键关掉映射。
+uniform bool enabled = true;
+
 // Target palette LUT。filter_nearest 是硬要求：线性插值会造出 palette 之外的中间色，
 // 反而破坏「统一色板」这个目的。
 uniform sampler2D palette_tex : filter_nearest, repeat_disable;
@@ -68,6 +72,12 @@ vec2 palette_uv(int i) {
 
 void fragment() {
 	vec4 src = texture(TEXTURE, UV);
+
+	// 总开关：关闭时直接输出原图，不做任何映射（验收对比图/A-B 测试用）。
+	if (!enabled) {
+		COLOR = src;
+		return;
+	}
 
 	// ① 羽化边缘二值化：先杀半透明，避免脏边参与后面的取色
 	if (src.a < alpha_cut) {

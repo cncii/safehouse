@@ -98,6 +98,17 @@ python tools/check_assets.py            # 资产门禁（A1–A4）
 
 ---
 
+## 4.1 本批新增（MVP 占位资产交付，2026-11-02）
+
+- **`pixel_art_texture.cfg`**：可粘贴的像素美术纹理 `[params]` 预设（§2 全部键），直接整段贴进各资源的 `<资源名>.png.import`。
+- **`assets/sprites/ui/ui_palette_db32.png`**：32×16 的 DB32 LUT，`palette_map.gdshader` 的 `palette_tex` 默认输入（§5）。本批随 MVP 占位资产一并生成，纵向 16 行内容相同，采样 `v=0.5` 安全。
+- **`assets/palette/target_palette.gpl`**：DB32 的人类可读参考（`palette_map.gdshader` 引用的目标色板）。文本格式、非 PNG，不被 `check_assets.py` 扫描。
+- 占位精灵/图块本身落在 `assets/sprites/**`、`assets/tilesets/**`，均过 A1–A4（`check_assets.py` 退出码 0）。
+
+> 注：`ui_palette_db32.png` 是 `palette_map` 的**输入**，不是普通美术件；它的 32 色是 DB32 本身，不计入任何单件 ≤32 色的预算（A4 对它还算宽裕）。
+
+---
+
 ## 5. 已知边界
 
 1. **没有项目级默认值**。`project.godot` 禁改，所以新资源默认走的仍是 Godot 出厂参数——
