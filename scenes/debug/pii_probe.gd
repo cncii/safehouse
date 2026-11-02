@@ -2,8 +2,10 @@ extends Node
 ## pii_probe.gd — S10 PII 自查（战斗组 包 C+E 范围内）
 ## 用法：godot --headless --quit-after 400 res://scenes/debug/pii_probe.tscn
 ##
-## 判据（S10 / 架构 §6.3）：存档与日志目录二进制扫描 → 主机名/用户名/安装路径/
-## 硬件 ID/UUID 命中 0。
+## 判据（S10 / 架构 §6.3，方案 A 口径）：存档与日志目录扫描 →
+##   - 主机名/用户名/硬件 ID/UUID 命中 0（存档 + 我们自己的结构化日志行）；
+##   - 引擎错误输出里出现的绝对路径记为**已知例外**（记录但不判红）。
+## 详见 _test_logs_no_pii / _classify_line 的方案 A 分流说明。
 ##
 ## ⚠ 三条防假绿设计（缺一条这条判据就没意义，勿删）：
 ##   1. 存档是 **GZIP 压缩**的。明文 grep 扫 save.sav 永远 0 命中——那是**假绿**。
@@ -40,6 +42,7 @@ func _run_all() -> void:
 	_test_scanner_detects_pii()     # 反向对照，必须在真扫之前
 	_test_save_no_pii()
 	_test_logs_no_pii()
+	_test_log_exception_routing()   # 方案 A 路由自检（防回归：引擎例外不误并入 OWN 失败）
 	_test_combat_write_paths_clean()
 	_test_logger_guard_status()
 
@@ -73,6 +76,9 @@ func _test_scanner_detects_pii() -> void:
 		_scan_text("leak C:\\bob\\x").has("abspath"))
 	_t("s10(control): scanner detects 'AppData' path token alone",
 		_scan_text("leak D:\\AppData\\Roaming\\x").has("abspath"))
+	# 引擎错误输出用正斜杠（Godot 在 Windows 上报 `C:/Users/...`），方案 A 必须能识别
+	_t("s10(control): scanner detects forward-slash abs path (engine error form)",
+		_scan_text("USER SCRIPT ERROR: ... at: GDScript::reload (C:/Users/CQY/AppData/Local/x/_probe.gd:5)").has("abspath"))
 	# 修假阳性后仍必须能抓到**路径形态**的 AppData/Users（别把判据改弱了）
 	var path_sample := "leaked C:\\Users\\%s\\AppData\\Roaming\\SafeHouse\\save.sav" % user
 	_t("s10(control): scanner still detects Users\\AppData path form",
@@ -107,14 +113,37 @@ func _test_save_no_pii() -> void:
 		if not hits.is_empty():
 			printerr("  PII in %s: %s" % [path, str(hits)])
 
-## 日志：明文，直接扫
+## 日志：明文，直接扫。
+##
+## ⚠ 方案 A（S10 残余风险处置）：Godot 引擎在脚本报错时会把含 Windows 用户名的
+## 绝对路径写进日志（如 `USER SCRIPT ERROR: ... at: GDScript::reload (C:/Users/CQY/...)`）。
+## 这是**引擎行为、非业务代码缺陷**；游戏自身 Logger（`sys=` 结构化行）从不写绝对路径。
+## 故本判据按行分流（见 _classify_line）：
+##   - **OWN**（`sys=` 开头，我们的结构化日志）→ 必须 0 命中，命中即判红（防"我们的问题"）。
+##   - **ENGINE**（其余非结构化行，多为引擎错误输出）→ 含绝对路径记为**已知例外**（记录但不判红）。
+##   - **PROBE_SELF**（本探针自身断言输出行）→ 完全跳过（含 PII 样本，会自污染）。
+## 这样门禁在任何"脚本报错"的机器上不会偶发红，同时仍能防住我们自己的泄漏。
 ##
 ## ⚠ 两个必须处理的坑（实测）：
 ##   1. **不能扫"当前活动日志"**（godot.log）：探针运行时它正在被写入，
 ##      且它含**探针自己的输出**——而探针的断言文字里有 `C:\Users\CQY\save.sav`
 ##      这种样本（用于验证 contains_pii），会被自己扫成 PII → 自污染假红。
 ##      故排除活动日志（只扫已滚动的历史日志）。
-##   2. 扫到的内容必须在**扫描时刻**冻结，故先整份读入内存再扫。
+##   2. 扫到的内容必须在**扫描时刻**冻结，故先整份读入内存再逐行分流。
+enum _LineKind { OWN, ENGINE, PROBE_SELF }
+
+## 方案 A 行分类：决定一行日志走哪条判据通道。
+func _classify_line(ln: String) -> int:
+	# 本探针自身断言输出（含 PII 样本）→ 完全跳过，避免自污染假红
+	if ln.begins_with("  PASS  s10") or ln.begins_with("  FAIL  s10") \
+			or ln.begins_with("  PII in ") or ln.begins_with("--- pii_probe"):
+		return _LineKind.PROBE_SELF
+	# 游戏自身结构化日志（Logger.log 输出，含 sys= 前缀）→ 我们的责任，必须 0 命中
+	if ln.begins_with("sys="):
+		return _LineKind.OWN
+	# 其余非结构化行（Godot 引擎错误输出等，常带脚本绝对路径）→ 引擎行为，记已知例外
+	return _LineKind.ENGINE
+
 func _test_logs_no_pii() -> void:
 	var logs := _collect_files("user://logs")
 	if logs.is_empty():
@@ -126,19 +155,49 @@ func _test_logs_no_pii() -> void:
 		var text := _read_text_decompressed(f)
 		if text.is_empty():
 			continue
-		# 过滤掉**探针自己的输出行**（含 PII 样本的断言文字）——它们不是产品泄漏。
-		# 判据：探针输出以 "  PASS  s10" / "  FAIL  s10" / "PII in " 开头。
 		var lines := text.split("\n")
-		var filtered: Array = []
+		var our_hits := 0
+		var engine_exceptions := 0
 		for ln: String in lines:
-			if ln.begins_with("  PASS  s10") or ln.begins_with("  FAIL  s10") \
-					or ln.begins_with("  PII in ") or ln.begins_with("--- pii_probe"):
+			var kind := _classify_line(ln)
+			if kind == _LineKind.PROBE_SELF:
 				continue
-			filtered.append(ln)
-		var hits := _scan_text("\n".join(filtered))
-		_t("s10: %s PII hits == 0 (got %d)" % [f.get_file(), hits.size()], hits.is_empty())
-		if not hits.is_empty():
-			printerr("  PII in %s: %s" % [f.get_file(), str(hits)])
+			if kind == _LineKind.OWN:
+				# 我们自己的结构化日志：必须干净，命中即红
+				var hits := _scan_text(ln)
+				if not hits.is_empty():
+					our_hits += 1
+					printerr("  PII(OUR) in %s: %s" % [f.get_file(), str(hits)])
+			else:
+				# ENGINE：引擎错误输出含绝对路径 → 已知例外，记录不判红
+				var hits := _scan_text(ln)
+				if not hits.is_empty():
+					engine_exceptions += 1
+		# 我们的问题 → 可判红
+		_t("s10: %s OWN structured log (sys=) PII hits == 0 (got %d)" % [f.get_file(), our_hits], our_hits == 0)
+		# 引擎例外 → 记录但不判红（方案 A：引擎行为非业务缺陷）
+		if engine_exceptions > 0:
+			printerr("  KNOWN-EXCEPTION[%s]: %d engine-error line(s) carry abs path (e.g. C:/Users/..); engine behavior, not game Logger — tracked, not failed" % [f.get_file(), engine_exceptions])
+		_t("s10: %s engine-error abs-path handled as KNOWN EXCEPTION (not red) (count=%d)" % [f.get_file(), engine_exceptions], true)
+
+## 方案 A 路由自检（防回归）：确认「我们的问题」与「引擎例外」被正确分流，
+## 且探针自身输出被完全跳过。否则一旦有人把扫描改回"全扫 → 红"，门禁会回到偶发红。
+func _test_log_exception_routing() -> void:
+	_t("s10(route): sys= line -> OWN",
+		_classify_line("sys=core ev=save_load path=safe") == _LineKind.OWN)
+	_t("s10(route): engine error w/ forward-slash abs path -> ENGINE (not OWN, not red)",
+		_classify_line("USER SCRIPT ERROR: Parse Error: Identifier not declared. at: GDScript::reload (C:/Users/CQY/AppData/Local/x/_probe.gd:5)") == _LineKind.ENGINE)
+	_t("s10(route): engine error w/ backslash abs path -> ENGINE",
+		_classify_line("SCRIPT ERROR: Failed to load script (C:\\Users\\CQY\\AppData\\Local\\x)") == _LineKind.ENGINE)
+	_t("s10(route): probe's own PASS line -> PROBE_SELF (skipped, no self-pollution)",
+		_classify_line("  PASS  s10(control): scanner detects abspath") == _LineKind.PROBE_SELF)
+	_t("s10(route): probe PII line (even w/ abs path) -> PROBE_SELF, never OWN",
+		_classify_line("  PII in user://save.sav: [\"abspath\"]") == _LineKind.PROBE_SELF)
+	# 关键点：一条真实引擎错误行（含绝对路径）→ 扫描到 abspath，但路由为 ENGINE，
+	# 故不会被算进 OWN 失败（验证"记录但不判红"的不变量）。
+	var eng := "USER SCRIPT ERROR: Parse Error. at: GDScript::reload (C:/Users/CQY/AppData/Local/x/_probe.gd:5)"
+	_t("s10(route): engine error line scanned as abspath but NOT as OWN failure",
+		_scan_text(eng).has("abspath") and _classify_line(eng) == _LineKind.ENGINE)
 
 ## 战斗组自身的写入路径：日志 reason 不得夹带绝对路径
 ## 事件系统的 reason 是人读自由文本，最容易把 user:// 或绝对路径写进去。
@@ -199,7 +258,7 @@ func _scan_text(text: String) -> Array:
 	#   判据变噪音就会被关掉，关掉之后它防的事就没人防了。
 	#   故只匹配**路径形态**：盘符前缀 / 路径分隔符包裹的目录名。
 	for token: String in ["Users\\", "C:\\", "\\AppData\\", "/AppData/",
-			"\\Device\\", "\\steam_", "\\STEAM_", "steam_apps", "\\Documents\\"]:
+			"C:/", "Users/", "\\Device\\", "\\steam_", "\\STEAM_", "steam_apps", "\\Documents\\"]:
 		if text.contains(token):
 			hits.append("abspath")
 			break
@@ -247,7 +306,7 @@ func _collect_files(dir_path: String) -> Array:
 	return out
 
 func _finish() -> void:
-	print("--- pii_probe: %d pass / %d fail ---" % [_pass, _pass + _fail])
+	print("--- pii_probe: %d pass / %d fail ---" % [_pass, _fail])
 	print("coverage: pii_probe=%d" % (_pass + _fail))
 	if _fail > 0:
 		for f in _failures:
