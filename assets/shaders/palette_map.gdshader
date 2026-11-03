@@ -70,41 +70,43 @@ vec2 palette_uv(int i) {
 	return vec2((float(i) + 0.5) / float(PALETTE_MAX), 0.5);
 }
 
+// ⚠ Godot 4.3 不允许在 fragment() 里 return 提前退出（4.4 才支持该语法），
+//   4.3 下直接编译失败 → 材质失效、精灵渲染损坏。总开关必须用 if/else 包裹，
+//   不要把映射体改回「if (!enabled) { COLOR = src; return; }」的写法。
 void fragment() {
 	vec4 src = texture(TEXTURE, UV);
 
 	// 总开关：关闭时直接输出原图，不做任何映射（验收对比图/A-B 测试用）。
 	if (!enabled) {
 		COLOR = src;
-		return;
-	}
-
-	// ① 羽化边缘二值化：先杀半透明，避免脏边参与后面的取色
-	if (src.a < alpha_cut) {
-		discard;
-	}
-
-	float l = luma(src.rgb);
-	vec3 mapped = src.rgb;
-
-	// ② 暗部统一：描边类像素直接压成契约规定的描边色 #222034
-	if (l < outline_luma) {
-		mapped = outline_color;
 	} else {
-		float best = 1e9;
-		for (int i = 0; i < PALETTE_MAX; i++) {
-			vec3 p = texture(palette_tex, palette_uv(i)).rgb;
-			vec3 d = p - src.rgb;
-			// 加权欧氏距离：绿通道权重最高（人眼对绿最敏感），
-			// 红蓝取近似权重。比朴素 RGB 距离更接近视觉感知。
-			float dist = dot(d * d, vec3(2.0, 4.0, 3.0));
-			if (dist < best) {
-				best = dist;
-				mapped = p;
+		// ① 羽化边缘二值化：先杀半透明，避免脏边参与后面的取色
+		if (src.a < alpha_cut) {
+			discard;
+		}
+
+		float l = luma(src.rgb);
+		vec3 mapped = src.rgb;
+
+		// ② 暗部统一：描边类像素直接压成契约规定的描边色 #222034
+		if (l < outline_luma) {
+			mapped = outline_color;
+		} else {
+			float best = 1e9;
+			for (int i = 0; i < PALETTE_MAX; i++) {
+				vec3 p = texture(palette_tex, palette_uv(i)).rgb;
+				vec3 d = p - src.rgb;
+				// 加权欧氏距离：绿通道权重最高（人眼对绿最敏感），
+				// 红蓝取近似权重。比朴素 RGB 距离更接近视觉感知。
+				float dist = dot(d * d, vec3(2.0, 4.0, 3.0));
+				if (dist < best) {
+					best = dist;
+					mapped = p;
+				}
 			}
 		}
-	}
 
-	// ③ 输出。alpha 保持原值：这里只统一颜色，不负责抠图。
-	COLOR = vec4(mix(src.rgb, mapped, mix_strength), src.a);
+		// ③ 输出。alpha 保持原值：这里只统一颜色，不负责抠图。
+		COLOR = vec4(mix(src.rgb, mapped, mix_strength), src.a);
+	}
 }
