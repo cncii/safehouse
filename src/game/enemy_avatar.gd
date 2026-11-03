@@ -11,6 +11,10 @@ extends CharacterBody2D
 
 const _GRAY_PATH := "res://data/balance/graybox_start.json"
 
+## 占位精灵 + 统一色板 shader（视觉替换，不影响逻辑）
+const _PALETTE_SHADER := preload("res://assets/shaders/palette_map.gdshader")
+const _PALETTE_LUT := preload("res://assets/sprites/ui/ui_palette_db32.png")
+
 var hp: float = 60.0
 var damage: float = 12.0
 var move_speed_px: float = 55.0
@@ -25,16 +29,23 @@ var _attack_timer := 0
 var _dead := false
 var _hit_flash := 0     # 受击闪烁剩余帧
 
-var _body: ColorRect
+var _body: Sprite2D
 var _hp_bar: ColorRect
 
 
 func _ready() -> void:
 	_load_graybox()
-	_body = ColorRect.new()
-	_body.color = Color(0.55, 0.15, 0.12)
-	_body.size = Vector2(16, 16)
-	_body.position = Vector2(-8, -8)
+	# 占位精灵：替换原色块 body（脚底落在碰撞圆原点附近）
+	_body = Sprite2D.new()
+	_body.texture = preload("res://assets/sprites/enemies/enemy_zombie_walk_down.png")
+	_body.position = Vector2(0, -16)
+	var mat := ShaderMaterial.new()
+	mat.shader = _PALETTE_SHADER
+	mat.set_shader_parameter("enabled", true)
+	mat.set_shader_parameter("palette_tex", _PALETTE_LUT)
+	mat.set_shader_parameter("mix_strength", 1.0)
+	mat.set_shader_parameter("alpha_cut", 1.0)
+	_body.material = mat
 	add_child(_body)
 
 	_hp_bar = ColorRect.new()
